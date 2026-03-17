@@ -25,13 +25,13 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>Fotoğraf çekebilmeniz için kamera izni gerekiyor.</string>
+	<string>Belegleri hızlı ve doğru şekilde tarayabilmeniz için kamera erişimine izin vermeniz gerekiyor.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Video kaydı için mikrofon izni gerekiyor.</string>
+	<string>Video kayıt özelliklerini kullanabilmeniz için mikrofon erişimine izin vermeniz gerekiyor.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Fotoğraf seçebilmeniz için galeri izni gerekiyor.</string>
+	<string>Mevcut fiş ve belge fotoğraflarını uygulamaya ekleyebilmeniz için fotoğraf arşivinize erişim gerekiyor.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Semko Scan kann gescannte Belege in deiner Fotomediathek speichern.</string>
+	<string>Taranan belge görüntülerini isterseniz fotoğraf arşivinize kaydedebilmek için izin gerekiyor.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

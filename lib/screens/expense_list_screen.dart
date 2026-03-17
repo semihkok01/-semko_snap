@@ -7,6 +7,7 @@ import '../services/category_service.dart';
 import '../services/expense_service.dart';
 import '../utils/app_format.dart';
 import '../widgets/brand_app_bar_title.dart';
+import '../widgets/error_card.dart';
 import 'expense_detail_screen.dart';
 
 class ExpenseListScreen extends StatefulWidget {
@@ -192,11 +193,9 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
                 child: Center(child: CircularProgressIndicator()),
               )
             else if (_error != null)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Text(_error!),
-                ),
+              ErrorCard(
+                message: _error!,
+                onRetry: _loadExpenses,
               )
             else if (_expenses.isEmpty)
               Card(

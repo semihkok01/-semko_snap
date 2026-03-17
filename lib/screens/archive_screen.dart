@@ -4,6 +4,7 @@ import '../services/api_service.dart';
 import '../services/expense_service.dart';
 import '../utils/app_format.dart';
 import '../widgets/brand_app_bar_title.dart';
+import '../widgets/error_card.dart';
 import 'expense_list_screen.dart';
 
 class ArchiveScreen extends StatefulWidget {
@@ -81,11 +82,9 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
                 child: Center(child: CircularProgressIndicator()),
               )
             else if (_error != null)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Text(_error!),
-                ),
+              ErrorCard(
+                message: _error!,
+                onRetry: _loadArchive,
               )
             else if (_archive.isEmpty)
               Card(

@@ -4,6 +4,7 @@ import '../models/category.dart';
 import '../services/api_service.dart';
 import '../services/category_service.dart';
 import '../widgets/brand_app_bar_title.dart';
+import '../widgets/error_card.dart';
 
 class CategoryManagementScreen extends StatefulWidget {
   const CategoryManagementScreen({super.key});
@@ -120,11 +121,9 @@ class _CategoryManagementScreenState extends State<CategoryManagementScreen> {
                 child: Center(child: CircularProgressIndicator()),
               )
             else if (_error != null)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Text(_error!),
-                ),
+              ErrorCard(
+                message: _error!,
+                onRetry: () => _loadCategories(forceRefresh: true),
               )
             else if (_categories.isEmpty)
               Card(

@@ -10,6 +10,7 @@ import '../services/category_service.dart';
 import '../services/expense_service.dart';
 import '../utils/app_format.dart';
 import '../widgets/brand_app_bar_title.dart';
+import '../widgets/error_card.dart';
 import 'archive_screen.dart';
 import 'category_management_screen.dart';
 import 'expense_detail_screen.dart';
@@ -230,11 +231,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: Center(child: CircularProgressIndicator()),
               )
             else if (_error != null)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Text(_error!),
-                ),
+              ErrorCard(
+                message: _error!,
+                onRetry: _loadDashboard,
               )
             else ...[
               Card(

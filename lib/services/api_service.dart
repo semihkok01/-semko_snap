@@ -124,10 +124,36 @@ class ApiService {
       return payload;
     }
 
+    // Provide a more user-friendly message for common server issues.
+    var message = (payload['message'] as String?) ?? 'Anfrage fehlgeschlagen.';
+
+    if (response.statusCode >= 500 ||
+        message.toLowerCase().contains('internal server error') ||
+        message.toLowerCase().contains('interner serverfehler')) {
+      // Try to expose more details from the payload (often provided by server in debug mode).
+      final extra = payload.entries
+          .where((entry) => entry.key != 'message')
+          .map((entry) => '${entry.key}: ${entry.value}')
+          .join(' | ');
+
+      message =
+          'Interner Serverfehler (Code ${response.statusCode}). Bitte versuche es später.';
+
+      if (extra.isNotEmpty) {
+        message = '$message\n$extra';
+      }
+    } else if (response.statusCode == 401) {
+      message =
+          'Sitzung abgelaufen. Bitte melde dich neu an. (Code ${response.statusCode})';
+    } else {
+      message = '$message (Code ${response.statusCode})';
+    }
+
     throw ApiException(
-      (payload['message'] as String?) ?? 'Anfrage fehlgeschlagen.',
+      message,
       statusCode: response.statusCode,
       payload: payload,
     );
   }
 }
+

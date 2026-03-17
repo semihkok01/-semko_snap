@@ -1,0 +1,53 @@
+name: semkosnap_mobile
+description: Semko Scan mobile client for receipt scanning and expense tracking.
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  http: ^1.2.2
+  camera: ^0.11.0+2
+  google_mlkit_text_recognition: ^0.13.0
+  image_picker: ^1.1.2
+  provider: ^6.1.2
+  fl_chart: ^0.68.0
+  shared_preferences: ^2.2.3
+  intl: ^0.20.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/logo.png
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/images/logo.png
+  remove_alpha_ios: false
+  background_color_ios: "#FFFFFF"
+  web:
+    generate: true
+    image_path: assets/images/logo.png
+    background_color: "#F8FAFC"
+    theme_color: "#2563EB"
+  windows:
+    generate: true
+    image_path: assets/images/logo.png
+    icon_size: 256
+  macos:
+    generate: true
+    image_path: assets/images/logo.png
+

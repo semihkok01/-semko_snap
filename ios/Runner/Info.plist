@@ -25,9 +25,11 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>Semko Scan benötigt Zugriff auf die Kamera, um Belege zu scannen.</string>
+	<string>Fotoğraf çekebilmeniz için kamera izni gerekiyor.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Video kaydı için mikrofon izni gerekiyor.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Semko Scan benötigt Zugriff auf deine Fotos, um Belegbilder auszuwählen.</string>
+	<string>Fotoğraf seçebilmeniz için galeri izni gerekiyor.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Semko Scan kann gescannte Belege in deiner Fotomediathek speichern.</string>
 	<key>UILaunchStoryboardName</key>

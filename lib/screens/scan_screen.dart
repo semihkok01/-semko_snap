@@ -47,7 +47,15 @@ class _ScanScreenState extends State<ScanScreen> {
   String? _cameraError;
   String? _analysisMessage;
 
-  bool get _usesSmartScan => Platform.isAndroid;
+  bool get _usesSmartScan => Platform.isAndroid || Platform.isIOS;
+
+  String get _smartScanDescription {
+    if (Platform.isIOS) {
+      return 'Auf dem iPhone wird der iOS-Dokumentenscanner genutzt. Damit kannst du den Beleg direkt erfassen, sauber zuschneiden und den Hintergrund automatisch abdunkeln lassen, bevor die OCR startet.';
+    }
+
+    return 'Auf Android wird der Google-Dokumentenscanner genutzt. Damit werden schiefe, zerknitterte oder dunkle Belegfotos vor der OCR deutlich besser vorbereitet.';
+  }
 
   @override
   void initState() {
@@ -155,6 +163,20 @@ class _ScanScreenState extends State<ScanScreen> {
     }
   }
 
+  Future<void> _openTorchCamera() async {
+    final image = await Navigator.of(context).push<XFile>(
+      MaterialPageRoute(
+        builder: (_) => const _TorchCameraScreen(),
+      ),
+    );
+
+    if (!mounted || image == null) {
+      return;
+    }
+
+    await _processImage(image);
+  }
+
   Future<void> _capturePhoto() async {
     if (_cameraController == null || !_cameraController!.value.isInitialized) {
       return;
@@ -212,7 +234,7 @@ class _ScanScreenState extends State<ScanScreen> {
               : 'Lokale OCR verwendet. Bitte Felder prüfen.';
         } on ApiException {
           analysisMessage =
-              'Lokale OCR verwendet. KI-Fallback ist auf dem Server nicht verfügbar.';
+              'Lokale OCR verwendet. Einige Felder bitte kurz prüfen.';
         } catch (_) {
           analysisMessage =
               'Lokale OCR verwendet. KI konnte diesen Beleg nicht weiter verbessern.';
@@ -284,15 +306,13 @@ class _ScanScreenState extends State<ScanScreen> {
       amount: useAiAmount ? aiResult.amount : localResult.amount,
       date: useAiDate ? aiResult.date : localResult.date,
       ocrText: localResult.ocrText,
-      shopConfidence: useAiShop
-          ? aiResult.shopConfidence
-          : localResult.shopConfidence,
+      shopConfidence:
+          useAiShop ? aiResult.shopConfidence : localResult.shopConfidence,
       amountConfidence: useAiAmount
           ? aiResult.amountConfidence
           : localResult.amountConfidence,
-      dateConfidence: useAiDate
-          ? aiResult.dateConfidence
-          : localResult.dateConfidence,
+      dateConfidence:
+          useAiDate ? aiResult.dateConfidence : localResult.dateConfidence,
       usedAi: usedAi,
       source: usedAi ? 'mlkit+gemini' : localResult.source,
       notes: aiResult.notes ?? localResult.notes,
@@ -301,9 +321,8 @@ class _ScanScreenState extends State<ScanScreen> {
 
   void _applyParseResultToControllers(ReceiptParseResult result) {
     _shopController.text = result.shopName ?? '';
-    _amountController.text = result.amount != null
-        ? AppFormat.amount(result.amount!)
-        : '';
+    _amountController.text =
+        result.amount != null ? AppFormat.amount(result.amount!) : '';
     _dateController.text = result.date != null
         ? AppFormat.displayDate(result.date)
         : AppFormat.date(DateTime.now());
@@ -363,9 +382,8 @@ class _ScanScreenState extends State<ScanScreen> {
 
   Future<bool> _confirmDuplicateSave(ApiException exception) async {
     final duplicate = exception.payload['duplicate'];
-    final duplicateExpense = duplicate is Map<String, dynamic>
-        ? Expense.fromJson(duplicate)
-        : null;
+    final duplicateExpense =
+        duplicate is Map<String, dynamic> ? Expense.fromJson(duplicate) : null;
 
     final content = duplicateExpense == null
         ? 'Es gibt bereits eine ähnliche Ausgabe. Möchtest du trotzdem speichern?'
@@ -530,7 +548,7 @@ class _ScanScreenState extends State<ScanScreen> {
                       ),
                       const SizedBox(height: 12),
                       Text(
-                        'Auf Android wird der Google-Dokumentenscanner genutzt. Damit werden schiefe, zerknitterte oder dunkle Belegfotos vor der OCR deutlich besser vorbereitet.',
+                        _smartScanDescription,
                         style: TextStyle(
                           color: Colors.grey.shade700,
                           height: 1.45,
@@ -549,9 +567,27 @@ class _ScanScreenState extends State<ScanScreen> {
                       SizedBox(
                         width: double.infinity,
                         child: OutlinedButton.icon(
+                          onPressed: _processing ? null : _openTorchCamera,
+                          icon: const Icon(Icons.flashlight_on_rounded),
+                          label: const Text('Kamera mit Licht'),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
                           onPressed: _processing ? null : _pickFromGallery,
                           icon: const Icon(Icons.photo_library_outlined),
                           label: const Text('Aus Galerie importieren'),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        'Hinweis: Im Smart-Scan steuert das Betriebssystem den Blitz selbst. Für dauerhaftes Licht nutze „Kamera mit Licht“.',
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                          height: 1.4,
+                          fontSize: 13,
                         ),
                       ),
                     ],
@@ -652,7 +688,8 @@ class _ScanScreenState extends State<ScanScreen> {
                 label: const Text('Neu aufnehmen'),
               ),
               OutlinedButton.icon(
-                onPressed: _saving || _processing ? null : _improveWithAiManually,
+                onPressed:
+                    _saving || _processing ? null : _improveWithAiManually,
                 icon: const Icon(Icons.auto_awesome_rounded),
                 label: const Text('Mit KI verbessern'),
               ),
@@ -835,4 +872,239 @@ class _ScanScreenState extends State<ScanScreen> {
   }
 }
 
+class _TorchCameraScreen extends StatefulWidget {
+  const _TorchCameraScreen();
 
+  @override
+  State<_TorchCameraScreen> createState() => _TorchCameraScreenState();
+}
+
+class _TorchCameraScreenState extends State<_TorchCameraScreen> {
+  CameraController? _controller;
+  bool _initializing = true;
+  bool _capturing = false;
+  bool _flashEnabled = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _initialize();
+  }
+
+  @override
+  void dispose() {
+    _turnFlashOff();
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initialize() async {
+    try {
+      final cameras = await availableCameras();
+      final selectedCamera = cameras.firstWhere(
+        (camera) => camera.lensDirection == CameraLensDirection.back,
+        orElse: () => cameras.first,
+      );
+
+      final controller = CameraController(
+        selectedCamera,
+        ResolutionPreset.high,
+        enableAudio: false,
+        imageFormatGroup: ImageFormatGroup.jpeg,
+      );
+
+      await controller.initialize();
+
+      try {
+        await controller.setFlashMode(FlashMode.torch);
+      } catch (_) {
+        _flashEnabled = false;
+      }
+
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+
+      setState(() {
+        _controller = controller;
+        _initializing = false;
+      });
+    } catch (exception) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _error = 'Kamera konnte nicht geöffnet werden: $exception';
+        _initializing = false;
+      });
+    }
+  }
+
+  Future<void> _toggleFlash() async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) {
+      return;
+    }
+
+    final nextEnabled = !_flashEnabled;
+
+    try {
+      await controller.setFlashMode(
+        nextEnabled ? FlashMode.torch : FlashMode.off,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _flashEnabled = nextEnabled;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Dieses Gerät unterstützt keinen Dauerblitz.'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _capture() async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized || _capturing) {
+      return;
+    }
+
+    setState(() {
+      _capturing = true;
+    });
+
+    try {
+      if (_flashEnabled) {
+        await controller.setFlashMode(FlashMode.torch);
+      }
+
+      final image = await controller.takePicture();
+
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.of(context).pop(image);
+    } catch (exception) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Aufnahme fehlgeschlagen: $exception')),
+      );
+      setState(() {
+        _capturing = false;
+      });
+    }
+  }
+
+  void _turnFlashOff() {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) {
+      return;
+    }
+
+    controller.setFlashMode(FlashMode.off).catchError((_) {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: const Text('Kamera mit Licht'),
+        actions: [
+          IconButton(
+            onPressed: _initializing ? null : _toggleFlash,
+            icon: Icon(
+              _flashEnabled
+                  ? Icons.flashlight_on_rounded
+                  : Icons.flashlight_off_rounded,
+            ),
+          ),
+        ],
+      ),
+      body: _initializing
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(
+                      _error!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  ),
+                )
+              : Column(
+                  children: [
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(24),
+                          child: CameraPreview(_controller!),
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
+                      child: Column(
+                        children: [
+                          Text(
+                            _flashEnabled
+                                ? 'Das Licht bleibt an, während du den Beleg aufnimmst.'
+                                : 'Das Licht ist aus. Du kannst es oben rechts einschalten.',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              height: 1.4,
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: _capturing ? null : _capture,
+                              icon: _capturing
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Icon(Icons.camera_alt_rounded),
+                              label: Text(
+                                _capturing
+                                    ? 'Wird aufgenommen...'
+                                    : 'Beleg aufnehmen',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+    );
+  }
+}

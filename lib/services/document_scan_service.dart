@@ -8,7 +8,7 @@ class DocumentScanService {
   );
 
   Future<String?> scanSinglePage() async {
-    if (!Platform.isAndroid) {
+    if (!Platform.isAndroid && !Platform.isIOS) {
       return null;
     }
 
@@ -20,9 +20,8 @@ class DocumentScanService {
       }
 
       throw Exception(
-        exception.message ?? 'Google-Dokumentenscanner ist nicht verfügbar.',
+        exception.message ?? 'Dokumentenscanner ist nicht verfügbar.',
       );
     }
   }
 }
-

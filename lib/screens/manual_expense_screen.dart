@@ -28,8 +28,10 @@ class _ManualExpenseScreenState extends State<ManualExpenseScreen> {
 
   List<Category> _categories = Category.all;
   Category _selectedCategory = Category.all.first;
+  String _selectedCurrencyCode = AppFormat.defaultCurrencyCode;
   bool _submitting = false;
   bool _loadingCategories = true;
+  String? _categoryNotice;
 
   @override
   void initState() {
@@ -53,9 +55,26 @@ class _ManualExpenseScreenState extends State<ManualExpenseScreen> {
         return;
       }
 
+      final resolvedCategories =
+          categories.isNotEmpty ? categories : Category.all;
       setState(() {
-        _categories = categories.isNotEmpty ? categories : Category.all;
+        _categories = resolvedCategories;
+        _selectedCategory = resolvedCategories.first;
+        _categoryNotice = categories.isEmpty
+            ? 'Der Server hat keine aktiven Kategorien geliefert. Standardkategorien werden verwendet.'
+            : null;
+        _loadingCategories = false;
+      });
+    } on ApiException catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _categories = Category.all;
         _selectedCategory = _categories.first;
+        _categoryNotice =
+            'Serverkategorien konnten nicht geladen werden. Standardkategorien werden verwendet.';
         _loadingCategories = false;
       });
     } catch (_) {
@@ -66,6 +85,8 @@ class _ManualExpenseScreenState extends State<ManualExpenseScreen> {
       setState(() {
         _categories = Category.all;
         _selectedCategory = _categories.first;
+        _categoryNotice =
+            'Kategorien konnten nicht geladen werden. Standardkategorien werden verwendet.';
         _loadingCategories = false;
       });
     }
@@ -87,15 +108,14 @@ class _ManualExpenseScreenState extends State<ManualExpenseScreen> {
 
   Future<bool> _confirmDuplicateSave(ApiException exception) async {
     final duplicate = exception.payload['duplicate'];
-    final duplicateExpense = duplicate is Map<String, dynamic>
-        ? Expense.fromJson(duplicate)
-        : null;
+    final duplicateExpense =
+        duplicate is Map<String, dynamic> ? Expense.fromJson(duplicate) : null;
 
     final content = duplicateExpense == null
         ? 'Es gibt bereits eine ähnliche Ausgabe. Möchtest du trotzdem speichern?'
         : 'Es gibt bereits „${duplicateExpense.shopName}“ am '
             '${AppFormat.displayDate(duplicateExpense.date)} mit '
-            '${AppFormat.currency(duplicateExpense.amount)}. Trotzdem speichern?';
+            '${AppFormat.currency(duplicateExpense.amount, currencyCode: duplicateExpense.currencyCode)}. Trotzdem speichern?';
 
     return await showDialog<bool>(
           context: context,
@@ -139,6 +159,7 @@ class _ManualExpenseScreenState extends State<ManualExpenseScreen> {
     try {
       await _expenseService.addManualExpense(
         amount: amount,
+        currencyCode: _selectedCurrencyCode,
         categoryId: _selectedCategory.id,
         date: _dateController.text,
         note: _noteController.text.trim(),
@@ -211,6 +232,10 @@ class _ManualExpenseScreenState extends State<ManualExpenseScreen> {
                             'Nutze diesen Bildschirm für Ausgaben ohne gescannten Beleg.',
                             style: TextStyle(color: Colors.grey.shade700),
                           ),
+                          if (_categoryNotice != null) ...[
+                            const SizedBox(height: 18),
+                            _InfoNotice(message: _categoryNotice!),
+                          ],
                           const SizedBox(height: 22),
                           TextFormField(
                             controller: _shopController,
@@ -226,14 +251,38 @@ class _ManualExpenseScreenState extends State<ManualExpenseScreen> {
                             },
                           ),
                           const SizedBox(height: 16),
+                          DropdownButtonFormField<String>(
+                            initialValue: _selectedCurrencyCode,
+                            decoration: const InputDecoration(
+                              labelText: 'Währung',
+                              prefixIcon: Icon(Icons.payments_rounded),
+                            ),
+                            items: AppFormat.dropdownCurrencyCodes(_selectedCurrencyCode)
+                                .map(
+                                  (currency) => DropdownMenuItem<String>(
+                                    value: currency,
+                                    child: Text(AppFormat.currencyLabel(currency)),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (value) {
+                              if (value != null) {
+                                setState(() {
+                                  _selectedCurrencyCode = value;
+                                });
+                              }
+                            },
+                          ),
+                          const SizedBox(height: 16),
                           TextFormField(
                             controller: _amountController,
                             keyboardType: const TextInputType.numberWithOptions(
                               decimal: true,
                             ),
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               labelText: 'Betrag',
-                              prefixIcon: Icon(Icons.euro_rounded),
+                              prefixText:
+                                  '${AppFormat.currencySymbol(_selectedCurrencyCode)} ',
                               hintText: 'z. B. 6,50',
                             ),
                             validator: (value) {
@@ -330,4 +379,44 @@ class _ManualExpenseScreenState extends State<ManualExpenseScreen> {
   }
 }
 
+class _InfoNotice extends StatelessWidget {
+  const _InfoNotice({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBEB),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFFDE68A)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 2),
+            child: Icon(
+              Icons.info_outline_rounded,
+              color: Color(0xFFD97706),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                color: Color(0xFF92400E),
+                height: 1.35,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 

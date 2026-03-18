@@ -24,7 +24,7 @@ class MainActivity : FlutterFragmentActivity() {
         pendingResult = null
 
         if (activityResult.resultCode != Activity.RESULT_OK) {
-            result.error("cancelled", "Document scan was cancelled.", null)
+            result.error("cancelled", "Der Dokumentenscan wurde abgebrochen.", null)
             return@registerForActivityResult
         }
 
@@ -33,7 +33,7 @@ class MainActivity : FlutterFragmentActivity() {
         val imageUri = page?.imageUri
 
         if (imageUri == null) {
-            result.error("scan_failed", "Scanner did not return an image.", null)
+            result.error("scan_failed", "Der Scanner hat kein Bild zurückgegeben.", null)
             return@registerForActivityResult
         }
 
@@ -41,7 +41,11 @@ class MainActivity : FlutterFragmentActivity() {
             val outputFile = copyUriToCache(imageUri)
             result.success(outputFile.absolutePath)
         } catch (exception: Exception) {
-            result.error("scan_failed", exception.message, null)
+            result.error(
+                "scan_failed",
+                exception.message ?: "Der Scan konnte nicht gespeichert werden.",
+                null,
+            )
         }
     }
 
@@ -59,7 +63,7 @@ class MainActivity : FlutterFragmentActivity() {
 
     private fun startScan(result: MethodChannel.Result) {
         if (pendingResult != null) {
-            result.error("busy", "Scanner is already active.", null)
+            result.error("busy", "Der Scanner ist bereits geöffnet.", null)
             return
         }
 
@@ -81,7 +85,7 @@ class MainActivity : FlutterFragmentActivity() {
                 pendingResult = null
                 result.error(
                     "unavailable",
-                    exception.message ?: "Google document scanner is unavailable.",
+                    exception.message ?: "Der Google-Dokumentenscanner ist nicht verfügbar.",
                     null,
                 )
             }
@@ -89,7 +93,7 @@ class MainActivity : FlutterFragmentActivity() {
 
     private fun copyUriToCache(uri: Uri): File {
         val inputStream = contentResolver.openInputStream(uri)
-            ?: throw IllegalStateException("Failed to open scanned image stream.")
+            ?: throw IllegalStateException("Der gescannte Beleg konnte nicht geöffnet werden.")
         val outputFile = File(cacheDir, "semkosnap_scan_${System.currentTimeMillis()}.jpg")
 
         inputStream.use { input ->
@@ -101,4 +105,3 @@ class MainActivity : FlutterFragmentActivity() {
         return outputFile
     }
 }
-

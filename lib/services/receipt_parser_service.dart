@@ -10,15 +10,18 @@ class ReceiptParserService {
     final ocrText = recognizedText.text.trim();
     final merchant = _detectMerchant(lines, ocrText);
     final amount = _detectAmount(lines);
+    final currency = _detectCurrency(lines, ocrText);
     final date = _detectDate(lines);
 
     return ReceiptParseResult(
       shopName: merchant.value,
       amount: amount.value,
+      currency: currency.value,
       date: date.value,
       ocrText: ocrText,
       shopConfidence: merchant.confidence,
       amountConfidence: amount.confidence,
+      currencyConfidence: currency.confidence,
       dateConfidence: date.confidence,
       source: 'mlkit',
     );
@@ -141,63 +144,126 @@ class ReceiptParserService {
   _FieldCandidate<double> _detectAmount(List<_ReceiptLine> lines) {
     _ScoredValue<double>? best;
 
+    void considerCandidate(
+      int lineIndex,
+      double amount, {
+      double bonus = 0,
+      bool preferTrailing = false,
+    }) {
+      final score = _scoreAmountCandidate(
+        lines,
+        lineIndex,
+        amount,
+        bonus: bonus,
+        preferTrailing: preferTrailing,
+      );
+
+      if (best == null || score > best!.score) {
+        best = _ScoredValue(amount, score);
+      }
+    }
+
     for (var i = 0; i < lines.length; i++) {
       final line = lines[i];
-      final matches = _moneyPattern.allMatches(line.text).toList();
-      final baseScore = _amountBaseScore(lines, i);
+      final candidates = _extractAmounts(line.text);
 
-      if (matches.isNotEmpty) {
-        for (var m = 0; m < matches.length; m++) {
-          final value = matches[m].group(1);
-          final amount = value == null ? null : _normalizeAmount(value);
-          if (amount == null || amount <= 0) {
-            continue;
-          }
-
-          var score = baseScore;
-          if (m == matches.length - 1) {
-            score += 12;
-          }
-          if (amount >= 1 && amount <= 500) {
-            score += 12;
-          }
-          if (amount < 0.5) {
-            score -= 120;
-          }
-          if (amount > 1000) {
-            score -= 80;
-          }
-
-          if (best == null || score > best.score) {
-            best = _ScoredValue(amount, score);
-          }
-        }
+      for (var candidateIndex = 0;
+          candidateIndex < candidates.length;
+          candidateIndex++) {
+        considerCandidate(
+          i,
+          candidates[candidateIndex],
+          preferTrailing: candidateIndex == candidates.length - 1,
+        );
       }
 
-      if (matches.isEmpty &&
-          _hasAny(line.normalized, _finalAmountKeywords) &&
-          i + 1 < lines.length) {
-        final nextLine = lines[i + 1];
-        for (final match in _moneyPattern.allMatches(nextLine.text)) {
-          final value = match.group(1);
-          final amount = value == null ? null : _normalizeAmount(value);
-          if (amount == null || amount <= 0) {
+      if (_hasAny(line.normalized, _finalAmountKeywords) ||
+          _hasAny(line.normalized, _totalKeywords)) {
+        for (var offset = -1; offset <= 4; offset++) {
+          final nearbyIndex = i + offset;
+          if (nearbyIndex < 0 || nearbyIndex >= lines.length) {
             continue;
           }
 
-          final score = baseScore + 80;
-          if (best == null || score > best.score) {
-            best = _ScoredValue(amount, score);
+          final nearbyCandidates = _extractAmounts(lines[nearbyIndex].text);
+          if (nearbyCandidates.isEmpty) {
+            continue;
+          }
+
+          final distance = (nearbyIndex - i).abs();
+          final anchorBonus = 125.0 - (distance * 24.0);
+
+          for (var candidateIndex = 0;
+              candidateIndex < nearbyCandidates.length;
+              candidateIndex++) {
+            considerCandidate(
+              nearbyIndex,
+              nearbyCandidates[candidateIndex],
+              bonus: anchorBonus,
+              preferTrailing: candidateIndex == nearbyCandidates.length - 1,
+            );
           }
         }
       }
     }
 
-    if (best == null || best.score < 40) {
+    if (best == null || best!.score < 40) {
       return const _FieldCandidate(null, 0);
     }
 
-    return _FieldCandidate(best.value, _confidence(best.score, 30, 220));
+    return _FieldCandidate(best!.value, _confidence(best!.score, 35, 280));
+  }
+
+  double _scoreAmountCandidate(
+    List<_ReceiptLine> lines,
+    int index,
+    double amount, {
+    double bonus = 0,
+    bool preferTrailing = false,
+  }) {
+    final text = lines[index].normalized;
+    var score = _amountBaseScore(lines, index) + bonus;
+
+    if (preferTrailing) {
+      score += 10;
+    }
+
+    if (amount >= 1 && amount <= 500) {
+      score += 14;
+    }
+    if (amount >= 3 && amount <= 250) {
+      score += 16;
+    }
+    if (amount < 1) {
+      score -= 70;
+    }
+    if (amount < 0.5) {
+      score -= 120;
+    }
+    if (amount > 1000) {
+      score -= 80;
+    }
+    if (index >= (lines.length * 0.55).floor()) {
+      score += 12;
+    }
+    if (text.contains('eur') || text.contains('€')) {
+      score += 20;
+    }
+
+    return score;
+  }
+
+  List<double> _extractAmounts(String text) {
+    final amounts = <double>[];
+    for (final match in _moneyPattern.allMatches(text)) {
+      final value = match.group(1);
+      final amount = value == null ? null : _normalizeAmount(value);
+      if (amount == null || amount <= 0) {
+        continue;
+      }
+      amounts.add(amount);
+    }
+    return amounts;
   }
 
   double _amountBaseScore(List<_ReceiptLine> lines, int index) {
@@ -230,15 +296,73 @@ class ReceiptParserService {
       score += 10;
     }
 
-    if (index > 0 && _hasAny(lines[index - 1].normalized, _finalAmountKeywords)) {
-      score += 55;
-    }
-    if (index + 1 < lines.length &&
-        _hasAny(lines[index + 1].normalized, _finalAmountKeywords)) {
-      score += 30;
+    for (var offset = 1; offset <= 4; offset++) {
+      final previousIndex = index - offset;
+      if (previousIndex >= 0 &&
+          _hasAny(lines[previousIndex].normalized, _finalAmountKeywords)) {
+        score += math.max(18.0, 70.0 - ((offset - 1) * 18.0));
+      }
+
+      final nextIndex = index + offset;
+      if (nextIndex < lines.length &&
+          _hasAny(lines[nextIndex].normalized, _finalAmountKeywords)) {
+        score += math.max(10.0, 42.0 - ((offset - 1) * 10.0));
+      }
     }
 
     return score;
+  }
+
+
+  _FieldCandidate<String> _detectCurrency(
+    List<_ReceiptLine> lines,
+    String fullText,
+  ) {
+    _ScoredValue<String>? best;
+
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+
+      for (final entry in _currencyPatterns.entries) {
+        final baseScore = _scoreCurrencyMatch(line.normalized, entry.key);
+        if (baseScore <= 0) {
+          continue;
+        }
+
+        var score = baseScore;
+        if (_hasAny(line.normalized, _finalAmountKeywords) ||
+            _hasAny(line.normalized, _totalKeywords)) {
+          score += 34;
+        }
+        if (i >= (lines.length * 0.45).floor()) {
+          score += 8;
+        }
+
+        if (best == null || score > best.score) {
+          best = _ScoredValue(entry.value, score);
+        }
+      }
+    }
+
+    if (best == null) {
+      final normalizedFullText = fullText.toLowerCase();
+      for (final entry in _currencyPatterns.entries) {
+        if (!entry.key.hasMatch(normalizedFullText)) {
+          continue;
+        }
+
+        final score = 56.0;
+        if (best == null || score > best.score) {
+          best = _ScoredValue(entry.value, score);
+        }
+      }
+    }
+
+    if (best == null) {
+      return const _FieldCandidate(null, 0);
+    }
+
+    return _FieldCandidate(best.value, _confidence(best.score, 35, 120));
   }
 
   _FieldCandidate<String> _detectDate(List<_ReceiptLine> lines) {
@@ -310,7 +434,8 @@ class ReceiptParserService {
   }
 
   bool _looksLikeAddress(String value) {
-    return RegExp(r'(str\.?|straße|street|hamburg|berlin|\b\d{5}\b)').hasMatch(value);
+    return RegExp(r'(str\.?|straße|street|hamburg|berlin|\b\d{5}\b)')
+        .hasMatch(value);
   }
 
   bool _looksLikeDateOrTime(String value) {
@@ -321,6 +446,29 @@ class ReceiptParserService {
 
   bool _looksLikeQuantityLine(String value) {
     return RegExp(r'\d+[.,]\d{2}\s*x\s*\d+').hasMatch(value);
+  }
+
+
+  double _scoreCurrencyMatch(String text, RegExp pattern) {
+    if (!pattern.hasMatch(text)) {
+      return 0;
+    }
+
+    var score = 62.0;
+    if (_hasAny(text, _totalKeywords) || _hasAny(text, _finalAmountKeywords)) {
+      score += 18;
+    }
+    if (_hasAny(text, _taxKeywords)) {
+      score -= 16;
+    }
+    if (_hasAny(text, _transactionNoiseKeywords)) {
+      score -= 12;
+    }
+    if (_looksLikeQuantityLine(text)) {
+      score -= 12;
+    }
+
+    return score;
   }
 
   double? _normalizeAmount(String raw) {
@@ -520,7 +668,20 @@ const List<String> _dateKeywords = [
   'zeit',
 ];
 
+
+final Map<RegExp, String> _currencyPatterns = {
+  RegExp(r'(?:\beur\b|€|euro)', caseSensitive: false): 'EUR',
+  RegExp(r'(?:\btry\b|\btl\b|₺|turkische lira|turk lirasi|turkish lira)', caseSensitive: false): 'TRY',
+  RegExp(r'(?:\busd\b|\$|dollar|us-dollar)', caseSensitive: false): 'USD',
+  RegExp(r'(?:\bgbp\b|£|pound|sterling)', caseSensitive: false): 'GBP',
+  RegExp(r'(?:\bchf\b|franken|franc)', caseSensitive: false): 'CHF',
+  RegExp(r'(?:\baed\b|dirham)', caseSensitive: false): 'AED',
+  RegExp(r'(?:\bsar\b|riyal)', caseSensitive: false): 'SAR',
+};
 final RegExp _moneyPattern = RegExp(r'(?<!\d)(\d{1,5}(?:[.,]\d{2}))(?!\d)');
-final RegExp _isoDatePattern = RegExp(r'\b(\d{4})[\/.\-](\d{1,2})[\/.\-](\d{1,2})\b');
-final RegExp _localDatePattern = RegExp(r'\b(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})\b');
+final RegExp _isoDatePattern =
+    RegExp(r'\b(\d{4})[\/.\-](\d{1,2})[\/.\-](\d{1,2})\b');
+final RegExp _localDatePattern =
+    RegExp(r'\b(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})\b');
+
 

@@ -31,7 +31,7 @@ class AuthService {
     final user = response['user'] as Map<String, dynamic>?;
 
     if (token == null || token.isEmpty) {
-      throw ApiException('Authentication token missing.');
+      throw ApiException('Authentifizierungs-Token fehlt.');
     }
 
     // 🔥 TOKEN → ApiService'e
@@ -65,7 +65,7 @@ class AuthService {
     final user = response['user'] as Map<String, dynamic>?;
 
     if (token == null || token.isEmpty) {
-      throw ApiException('Authentication token missing.');
+      throw ApiException('Authentifizierungs-Token fehlt.');
     }
 
     await _apiService.saveToken(token);

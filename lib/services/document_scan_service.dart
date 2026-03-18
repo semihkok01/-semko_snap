@@ -19,9 +19,24 @@ class DocumentScanService {
         return null;
       }
 
-      throw Exception(
-        exception.message ?? 'Dokumentenscanner ist nicht verfügbar.',
-      );
+      throw Exception(_localizedPlatformMessage(exception));
+    }
+  }
+
+  String _localizedPlatformMessage(PlatformException exception) {
+    switch (exception.code) {
+      case 'busy':
+        return 'Der Dokumentenscanner ist bereits geöffnet.';
+      case 'unavailable':
+        return 'Der Dokumentenscanner ist auf diesem Gerät derzeit nicht verfügbar.';
+      case 'scan_failed':
+        return exception.message?.trim().isNotEmpty == true
+            ? exception.message!.trim()
+            : 'Der Beleg konnte nicht gescannt werden.';
+      default:
+        return exception.message?.trim().isNotEmpty == true
+            ? exception.message!.trim()
+            : 'Dokumentenscanner ist nicht verfügbar.';
     }
   }
 }

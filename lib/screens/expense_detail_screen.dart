@@ -207,9 +207,12 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                     ),
                     const SizedBox(height: 16),
                     _DetailRow(
-                      icon: Icons.euro_rounded,
+                      icon: Icons.payments_rounded,
                       label: 'Betrag',
-                      value: AppFormat.currency(_expense.amount),
+                      value: AppFormat.currency(
+                        _expense.amount,
+                        currencyCode: _expense.currencyCode,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     _DetailRow(
@@ -321,5 +324,8 @@ class _DetailRow extends StatelessWidget {
     );
   }
 }
+
+
+
 
 

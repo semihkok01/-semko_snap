@@ -1,9 +1,13 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../models/category.dart';
 import '../models/expense.dart';
 import '../services/api_service.dart';
 import '../services/category_service.dart';
+import '../services/document_scan_service.dart';
 import '../services/expense_service.dart';
 import '../utils/app_format.dart';
 import '../widgets/brand_app_bar_title.dart';
@@ -21,6 +25,8 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
   final _formKey = GlobalKey<FormState>();
   final ExpenseService _expenseService = ExpenseService();
   final CategoryService _categoryService = CategoryService();
+  final ImagePicker _imagePicker = ImagePicker();
+  final DocumentScanService _documentScanService = DocumentScanService();
   late final TextEditingController _shopController;
   late final TextEditingController _amountController;
   late final TextEditingController _dateController;
@@ -28,8 +34,12 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
 
   List<Category> _categories = const [];
   Category? _selectedCategory;
+  late String _selectedCurrencyCode;
+  String? _replacementImagePath;
   bool _loadingCategories = true;
   bool _saving = false;
+
+  bool get _supportsSmartScan => Platform.isAndroid || Platform.isIOS;
 
   @override
   void initState() {
@@ -42,6 +52,7 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
       text: AppFormat.displayDate(widget.expense.date),
     );
     _noteController = TextEditingController(text: widget.expense.note ?? '');
+    _selectedCurrencyCode = widget.expense.currencyCode;
     _loadCategories();
   }
 
@@ -56,7 +67,9 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
 
   Future<void> _loadCategories() async {
     try {
-      final categories = await _categoryService.fetchCategories();
+      final categories = await _categoryService.fetchCategories(
+        includeInactive: true,
+      );
       final currentCategory = _currentExpenseCategory();
       final containsCurrent = categories.any(
         (category) => category.id == currentCategory.id,
@@ -121,6 +134,52 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
     }
   }
 
+  Future<void> _replaceWithSmartScan() async {
+    try {
+      final path = await _documentScanService.scanSinglePage();
+      if (!mounted || path == null) {
+        return;
+      }
+
+      setState(() {
+        _replacementImagePath = path;
+      });
+    } catch (exception) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Smart-Scan fehlgeschlagen: $exception')),
+      );
+    }
+  }
+
+  Future<void> _pickReplacementFromGallery() async {
+    try {
+      final image = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 95,
+      );
+
+      if (!mounted || image == null) {
+        return;
+      }
+
+      setState(() {
+        _replacementImagePath = image.path;
+      });
+    } catch (exception) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Bildauswahl fehlgeschlagen: $exception')),
+      );
+    }
+  }
+
   Future<bool> _confirmDuplicateSave(ApiException exception) async {
     final duplicate = exception.payload['duplicate'];
     final duplicateExpense = duplicate is Map<String, dynamic>
@@ -131,7 +190,7 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
         ? 'Es gibt bereits eine ähnliche Ausgabe. Möchtest du trotzdem speichern?'
         : 'Es gibt bereits „${duplicateExpense.shopName}“ am '
             '${AppFormat.displayDate(duplicateExpense.date)} mit '
-            '${AppFormat.currency(duplicateExpense.amount)}. Trotzdem speichern?';
+            '${AppFormat.currency(duplicateExpense.amount, currencyCode: duplicateExpense.currencyCode)}. Trotzdem speichern?';
 
     return await showDialog<bool>(
           context: context,
@@ -176,10 +235,12 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
       final updatedExpense = await _expenseService.updateExpense(
         expenseId: widget.expense.id,
         amount: amount,
+        currencyCode: _selectedCurrencyCode,
         shopName: _shopController.text.trim(),
         date: _dateController.text.trim(),
         categoryId: _selectedCategory!.id,
         note: _noteController.text.trim(),
+        receiptImagePath: _replacementImagePath,
         force: force,
       );
 
@@ -214,6 +275,48 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
         });
       }
     }
+  }
+
+  Widget _buildReceiptPreview() {
+    final hasReplacement = (_replacementImagePath ?? '').isNotEmpty;
+    final hasStoredImage = (widget.expense.receiptImageUrl ?? '').isNotEmpty;
+
+    if (!hasReplacement && !hasStoredImage) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Text(
+          'Für diese Ausgabe ist noch kein Belegbild gespeichert.',
+          style: TextStyle(color: Colors.grey.shade700),
+        ),
+      );
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(18),
+      child: AspectRatio(
+        aspectRatio: 4 / 3,
+        child: hasReplacement
+            ? Image.file(
+                File(_replacementImagePath!),
+                fit: BoxFit.cover,
+              )
+            : Image.network(
+                widget.expense.receiptImageUrl!,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(20),
+                    child: Text('Belegbild konnte nicht geladen werden.'),
+                  ),
+                ),
+              ),
+      ),
+    );
   }
 
   @override
@@ -254,14 +357,38 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
                           },
                         ),
                         const SizedBox(height: 16),
+                        DropdownButtonFormField<String>(
+                          initialValue: _selectedCurrencyCode,
+                          decoration: const InputDecoration(
+                            labelText: 'Währung',
+                            prefixIcon: Icon(Icons.payments_rounded),
+                          ),
+                          items: AppFormat.dropdownCurrencyCodes(_selectedCurrencyCode)
+                              .map(
+                                (currency) => DropdownMenuItem<String>(
+                                  value: currency,
+                                  child: Text(AppFormat.currencyLabel(currency)),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (value) {
+                            if (value != null) {
+                              setState(() {
+                                _selectedCurrencyCode = value;
+                              });
+                            }
+                          },
+                        ),
+                        const SizedBox(height: 16),
                         TextFormField(
                           controller: _amountController,
                           keyboardType: const TextInputType.numberWithOptions(
                             decimal: true,
                           ),
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             labelText: 'Betrag',
-                            prefixIcon: Icon(Icons.euro_rounded),
+                            prefixText:
+                                '${AppFormat.currencySymbol(_selectedCurrencyCode)} ',
                           ),
                           validator: (value) {
                             final parsed = AppFormat.parseAmount(value);
@@ -282,22 +409,12 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
                               .map(
                                 (category) => DropdownMenuItem<Category>(
                                   value: category,
-                                  child: Row(
-                                    children: [
-                                      Icon(category.iconData, color: category.color),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Text(
-                                          category.localizedName,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      if (!category.isActive)
-                                        const Padding(
-                                          padding: EdgeInsets.only(left: 8),
-                                          child: Text('(inaktiv)'),
-                                        ),
-                                    ],
+                                  child: Text(
+                                    category.isActive
+                                        ? category.localizedName
+                                        : '${category.localizedName} (inaktiv)',
+                                    overflow: TextOverflow.ellipsis,
+                                    maxLines: 1,
                                   ),
                                 ),
                               )
@@ -337,6 +454,53 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
                           ),
                         ),
                         const SizedBox(height: 24),
+                        const Text(
+                          'Belegbild',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        _buildReceiptPreview(),
+                        const SizedBox(height: 14),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: [
+                            if (_supportsSmartScan)
+                              OutlinedButton.icon(
+                                onPressed: _saving ? null : _replaceWithSmartScan,
+                                icon: const Icon(Icons.document_scanner_rounded),
+                                label: const Text('Smart-Scan'),
+                              ),
+                            OutlinedButton.icon(
+                              onPressed: _saving ? null : _pickReplacementFromGallery,
+                              icon: const Icon(Icons.photo_library_outlined),
+                              label: const Text('Aus Galerie wählen'),
+                            ),
+                            if (_replacementImagePath != null)
+                              TextButton.icon(
+                                onPressed: _saving
+                                    ? null
+                                    : () {
+                                        setState(() {
+                                          _replacementImagePath = null;
+                                        });
+                                      },
+                                icon: const Icon(Icons.undo_rounded),
+                                label: const Text('Neue Auswahl verwerfen'),
+                              ),
+                          ],
+                        ),
+                        if (_replacementImagePath != null) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            'Das neue Belegbild wird beim Speichern übernommen.',
+                            style: TextStyle(color: Colors.grey.shade700),
+                          ),
+                        ],
+                        const SizedBox(height: 24),
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton(
@@ -362,5 +526,3 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
     );
   }
 }
-
-

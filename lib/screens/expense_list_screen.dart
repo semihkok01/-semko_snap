@@ -28,15 +28,41 @@ class ExpenseListScreen extends StatefulWidget {
 class _ExpenseListScreenState extends State<ExpenseListScreen> {
   final ExpenseService _expenseService = ExpenseService();
   final CategoryService _categoryService = CategoryService();
+  final TextEditingController _shopFilterController = TextEditingController();
+
   bool _loading = true;
   String? _error;
   int? _deletingExpenseId;
-  List<Expense> _expenses = const [];
+  List<Expense> _allExpenses = const [];
+  List<Category> _categories = const [];
+  int? _selectedCategoryId;
+  DateTime? _selectedFilterDate;
+  bool _didChange = false;
+
+  bool get _hasActiveFilters =>
+      _shopFilterController.text.trim().isNotEmpty ||
+      _selectedCategoryId != null ||
+      _selectedFilterDate != null;
 
   @override
   void initState() {
     super.initState();
+    _shopFilterController.addListener(_onFilterChanged);
     _loadExpenses();
+  }
+
+  @override
+  void dispose() {
+    _shopFilterController
+      ..removeListener(_onFilterChanged)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _onFilterChanged() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _loadExpenses() async {
@@ -46,7 +72,13 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
     });
 
     try {
-      await _categoryService.fetchCategories();
+      List<Category> categories = const [];
+      try {
+        categories = await _categoryService.fetchCategories(includeInactive: true);
+      } catch (_) {
+        categories = Category.all;
+      }
+
       final expenses = await _expenseService.getExpenses(
         month: widget.month,
         year: widget.year,
@@ -57,7 +89,8 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
       }
 
       setState(() {
-        _expenses = expenses;
+        _allExpenses = expenses;
+        _categories = _mergeCategories(categories, expenses);
       });
     } on ApiException catch (exception) {
       if (!mounted) {
@@ -86,6 +119,10 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
     if (!mounted || didChange != true) {
       return;
     }
+
+    setState(() {
+      _didChange = true;
+    });
 
     await _loadExpenses();
   }
@@ -126,7 +163,8 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
       }
 
       setState(() {
-        _expenses = _expenses.where((item) => item.id != expense.id).toList();
+        _allExpenses = _allExpenses.where((item) => item.id != expense.id).toList();
+        _didChange = true;
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -149,12 +187,139 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
     }
   }
 
+  List<Category> _mergeCategories(List<Category> categories, List<Expense> expenses) {
+    final merged = <Category>[];
+    final seen = <int>{};
+
+    void addCategory(Category category) {
+      if (seen.add(category.id)) {
+        merged.add(category);
+      }
+    }
+
+    for (final category in categories) {
+      addCategory(category);
+    }
+
+    for (final expense in expenses) {
+      final byName = Category.byName(expense.categoryName);
+      if (byName != null && byName.id == expense.categoryId) {
+        addCategory(byName.copyWith(isActive: expense.categoryIsActive));
+        continue;
+      }
+
+      addCategory(
+        Category(
+          id: expense.categoryId,
+          name: expense.categoryName ?? 'Kategorie',
+          iconName: expense.categoryIcon ?? 'category',
+          color: Category.colorFromHex(expense.categoryColor),
+          isActive: expense.categoryIsActive,
+        ),
+      );
+    }
+
+    merged.sort((left, right) => left.localizedName.compareTo(right.localizedName));
+    return merged;
+  }
+
+  List<Expense> _filteredExpenses() {
+    final query = _shopFilterController.text.trim().toLowerCase();
+    final selectedDate = _selectedFilterDate != null
+        ? _normalizeApiDate(_selectedFilterDate!)
+        : null;
+
+    return _allExpenses.where((expense) {
+      if (_selectedCategoryId != null && expense.categoryId != _selectedCategoryId) {
+        return false;
+      }
+
+      if (query.isNotEmpty) {
+        final haystack = [expense.shopName, expense.note ?? '']
+            .join(' ')
+            .toLowerCase();
+        if (!haystack.contains(query)) {
+          return false;
+        }
+      }
+
+      if (selectedDate != null && expense.date != selectedDate) {
+        return false;
+      }
+
+      return true;
+    }).toList();
+  }
+
+  String _normalizeApiDate(DateTime value) {
+    final year = value.year.toString().padLeft(4, '0');
+    final month = value.month.toString().padLeft(2, '0');
+    final day = value.day.toString().padLeft(2, '0');
+    return '$year-$month-$day';
+  }
+
+  Future<void> _pickFilterDate() async {
+    final initialDate = _selectedFilterDate ?? DateTime(widget.year, widget.month, 1);
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime(widget.year - 3),
+      lastDate: DateTime(widget.year + 3, 12, 31),
+    );
+
+    if (!mounted || selected == null) {
+      return;
+    }
+
+    setState(() {
+      _selectedFilterDate = selected;
+    });
+  }
+
+  List<CurrencyTotalEntry> _expenseCurrencyTotals(List<Expense> expenses) {
+    final totals = <String, double>{};
+    for (final expense in expenses) {
+      totals.update(
+        expense.currencyCode,
+        (value) => value + expense.amount,
+        ifAbsent: () => expense.amount,
+      );
+    }
+
+    return totals.entries
+        .map(
+          (entry) => CurrencyTotalEntry(
+            currencyCode: entry.key,
+            total: entry.value,
+          ),
+        )
+        .toList();
+  }
+
+  void _popWithResult() {
+    Navigator.of(context).pop(_didChange);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final total = _expenses.fold<double>(0, (sum, item) => sum + item.amount);
+    final filteredExpenses = _filteredExpenses();
+    final totalSummary = AppFormat.currencyTotalsSummary(
+      _expenseCurrencyTotals(filteredExpenses),
+    );
 
-    return Scaffold(
+    return PopScope<bool>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) {
+          _popWithResult();
+        }
+      },
+      child: Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: _popWithResult,
+        ),
         title: BrandAppBarTitle('${_monthName(widget.month)} ${widget.year}'),
       ),
       body: RefreshIndicator(
@@ -171,17 +336,126 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
                     const SizedBox(width: 14),
                     Expanded(
                       child: Text(
-                        'Gesamtausgaben',
+                        _hasActiveFilters ? 'Gefilterte Ausgaben' : 'Gesamtausgaben',
                         style: TextStyle(color: Colors.grey.shade700),
                       ),
                     ),
-                    Text(
-                      AppFormat.currency(total),
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
+                    Flexible(
+                      child: Text(
+                        totalSummary,
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                     ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Filter',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _shopFilterController,
+                      decoration: InputDecoration(
+                        labelText: 'Geschäft oder Notiz suchen',
+                        prefixIcon: const Icon(Icons.search_rounded),
+                        suffixIcon: _shopFilterController.text.trim().isEmpty
+                            ? null
+                            : IconButton(
+                                onPressed: () {
+                                  _shopFilterController.clear();
+                                },
+                                icon: const Icon(Icons.close_rounded),
+                              ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    DropdownButtonFormField<int?>(
+                      initialValue: _selectedCategoryId,
+                      decoration: const InputDecoration(
+                        labelText: 'Kategorie',
+                        prefixIcon: Icon(Icons.category_rounded),
+                      ),
+                      items: [
+                        const DropdownMenuItem<int?>(
+                          value: null,
+                          child: Text('Alle Kategorien'),
+                        ),
+                        ..._categories.map(
+                          (category) => DropdownMenuItem<int?>(
+                            value: category.id,
+                            child: Text(
+                              category.isActive
+                                  ? category.localizedName
+                                  : '${category.localizedName} (inaktiv)',
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                            ),
+                          ),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        setState(() {
+                          _selectedCategoryId = value;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: TextEditingController(
+                        text: _selectedFilterDate == null
+                            ? ''
+                            : AppFormat.date(_selectedFilterDate!),
+                      ),
+                      readOnly: true,
+                      onTap: _pickFilterDate,
+                      decoration: InputDecoration(
+                        labelText: 'Datum',
+                        prefixIcon: const Icon(Icons.calendar_today_rounded),
+                        suffixIcon: _selectedFilterDate == null
+                            ? null
+                            : IconButton(
+                                onPressed: () {
+                                  setState(() {
+                                    _selectedFilterDate = null;
+                                  });
+                                },
+                                icon: const Icon(Icons.close_rounded),
+                              ),
+                      ),
+                    ),
+                    if (_hasActiveFilters) ...[
+                      const SizedBox(height: 14),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              _shopFilterController.clear();
+                              _selectedCategoryId = null;
+                              _selectedFilterDate = null;
+                            });
+                          },
+                          icon: const Icon(Icons.filter_alt_off_rounded),
+                          label: const Text('Filter zurücksetzen'),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -197,19 +471,21 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
                 message: _error!,
                 onRetry: _loadExpenses,
               )
-            else if (_expenses.isEmpty)
+            else if (filteredExpenses.isEmpty)
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(28),
                   child: Text(
-                    'Für diesen Monat wurden keine Ausgaben gefunden.',
+                    _hasActiveFilters
+                        ? 'Keine Ausgaben entsprechen den gewählten Filtern.'
+                        : 'Für diesen Monat wurden keine Ausgaben gefunden.',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.grey.shade700),
                   ),
                 ),
               )
             else
-              ..._expenses.map(
+              ...filteredExpenses.map(
                 (expense) => Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: _ExpenseCard(
@@ -222,6 +498,7 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
               ),
           ],
         ),
+      ),
       ),
     );
   }
@@ -258,6 +535,7 @@ class _ExpenseCard extends StatelessWidget {
   final bool deleting;
   final VoidCallback onDelete;
   final VoidCallback onTap;
+
 
   @override
   Widget build(BuildContext context) {
@@ -324,7 +602,10 @@ class _ExpenseCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    AppFormat.currency(expense.amount),
+                    AppFormat.currency(
+                      expense.amount,
+                      currencyCode: expense.currencyCode,
+                    ),
                     style: const TextStyle(
                       fontWeight: FontWeight.w800,
                       fontSize: 15,
@@ -354,5 +635,4 @@ class _ExpenseCard extends StatelessWidget {
     );
   }
 }
-
 

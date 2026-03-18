@@ -52,7 +52,7 @@ class AuthProvider extends ChangeNotifier {
       final user = response['user'] as Map<String, dynamic>?;
 
       if (token == null || token.isEmpty) {
-        throw ApiException('Token fehlt.');
+        throw ApiException('Authentifizierungs-Token fehlt.');
       }
 
       _token = token;
@@ -84,7 +84,7 @@ class AuthProvider extends ChangeNotifier {
       final user = response['user'] as Map<String, dynamic>?;
 
       if (token == null || token.isEmpty) {
-        throw ApiException('Token fehlt.');
+        throw ApiException('Authentifizierungs-Token fehlt.');
       }
 
       _token = token;
@@ -124,7 +124,7 @@ class AuthProvider extends ChangeNotifier {
     } on ApiException {
       rethrow;
     } catch (e) {
-      throw ApiException("Unbekannter Fehler.");
+      throw ApiException("Unbekannter Fehler beim Anmelden.");
     } finally {
       _isBusy = false;
       notifyListeners();

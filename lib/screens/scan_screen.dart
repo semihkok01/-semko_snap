@@ -39,15 +39,18 @@ class _ScanScreenState extends State<ScanScreen> {
   XFile? _selectedImage;
   List<Category> _categories = Category.all;
   Category _selectedCategory = Category.all.first;
+  String _selectedCurrencyCode = AppFormat.defaultCurrencyCode;
   ReceiptParseResult? _parseResult;
   bool _initializingCamera = true;
   bool _loadingCategories = true;
   bool _processing = false;
   bool _saving = false;
   String? _cameraError;
+  String? _categoryNotice;
   String? _analysisMessage;
 
   bool get _usesSmartScan => Platform.isAndroid || Platform.isIOS;
+  bool get _supportsDirectCamera => Platform.isAndroid || Platform.isIOS;
 
   String get _smartScanDescription {
     if (Platform.isIOS) {
@@ -63,8 +66,11 @@ class _ScanScreenState extends State<ScanScreen> {
     _loadCategories();
     if (_usesSmartScan) {
       _initializingCamera = false;
-    } else {
+    } else if (_supportsDirectCamera) {
       _initializeCamera();
+    } else {
+      _initializingCamera = false;
+      _cameraError = 'Direkte Kameraaufnahme ist auf diesem Gerät nicht verfügbar. Bitte importiere den Beleg aus der Galerie.';
     }
   }
 
@@ -84,9 +90,26 @@ class _ScanScreenState extends State<ScanScreen> {
         return;
       }
 
+      final resolvedCategories =
+          categories.isNotEmpty ? categories : Category.all;
       setState(() {
-        _categories = categories.isNotEmpty ? categories : Category.all;
+        _categories = resolvedCategories;
+        _selectedCategory = resolvedCategories.first;
+        _categoryNotice = categories.isEmpty
+            ? 'Der Server hat keine aktiven Kategorien geliefert. Standardkategorien werden verwendet.'
+            : null;
+        _loadingCategories = false;
+      });
+    } on ApiException catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _categories = Category.all;
         _selectedCategory = _categories.first;
+        _categoryNotice =
+            'Serverkategorien konnten nicht geladen werden. Standardkategorien werden verwendet.';
         _loadingCategories = false;
       });
     } catch (_) {
@@ -97,6 +120,8 @@ class _ScanScreenState extends State<ScanScreen> {
       setState(() {
         _categories = Category.all;
         _selectedCategory = _categories.first;
+        _categoryNotice =
+            'Kategorien konnten nicht geladen werden. Standardkategorien werden verwendet.';
         _loadingCategories = false;
       });
     }
@@ -164,6 +189,11 @@ class _ScanScreenState extends State<ScanScreen> {
   }
 
   Future<void> _openTorchCamera() async {
+    if (!_supportsDirectCamera) {
+      _showMessage('Direkte Kameraaufnahme ist auf diesem Gerät nicht verfügbar.');
+      return;
+    }
+
     final image = await Navigator.of(context).push<XFile>(
       MaterialPageRoute(
         builder: (_) => const _TorchCameraScreen(),
@@ -294,16 +324,23 @@ class _ScanScreenState extends State<ScanScreen> {
             localResult.amountConfidence < 0.82 ||
             aiResult.amountConfidence > localResult.amountConfidence + 0.08);
 
+    final useAiCurrency = aiResult.currency != null &&
+        (localResult.currency == null ||
+            localResult.currencyConfidence < 0.72 ||
+            aiResult.currencyConfidence > localResult.currencyConfidence + 0.08 ||
+            (useAiAmount && aiResult.amount == localResult.amount));
+
     final useAiDate = aiResult.date != null &&
         (localResult.date == null ||
             localResult.dateConfidence < 0.75 ||
             aiResult.dateConfidence > localResult.dateConfidence + 0.08);
 
-    final usedAi = useAiShop || useAiAmount || useAiDate;
+    final usedAi = useAiShop || useAiAmount || useAiCurrency || useAiDate;
 
     return ReceiptParseResult(
       shopName: useAiShop ? aiResult.shopName : localResult.shopName,
       amount: useAiAmount ? aiResult.amount : localResult.amount,
+      currency: useAiCurrency ? aiResult.currency : localResult.currency,
       date: useAiDate ? aiResult.date : localResult.date,
       ocrText: localResult.ocrText,
       shopConfidence:
@@ -311,6 +348,9 @@ class _ScanScreenState extends State<ScanScreen> {
       amountConfidence: useAiAmount
           ? aiResult.amountConfidence
           : localResult.amountConfidence,
+      currencyConfidence: useAiCurrency
+          ? aiResult.currencyConfidence
+          : localResult.currencyConfidence,
       dateConfidence:
           useAiDate ? aiResult.dateConfidence : localResult.dateConfidence,
       usedAi: usedAi,
@@ -326,6 +366,7 @@ class _ScanScreenState extends State<ScanScreen> {
     _dateController.text = result.date != null
         ? AppFormat.displayDate(result.date)
         : AppFormat.date(DateTime.now());
+    _selectedCurrencyCode = AppFormat.normalizeCurrencyCode(result.currency);
   }
 
   Future<void> _improveWithAiManually() async {
@@ -389,7 +430,7 @@ class _ScanScreenState extends State<ScanScreen> {
         ? 'Es gibt bereits eine ähnliche Ausgabe. Möchtest du trotzdem speichern?'
         : 'Es gibt bereits „${duplicateExpense.shopName}“ am '
             '${AppFormat.displayDate(duplicateExpense.date)} mit '
-            '${AppFormat.currency(duplicateExpense.amount)}. Trotzdem speichern?';
+            '${AppFormat.currency(duplicateExpense.amount, currencyCode: duplicateExpense.currencyCode)}. Trotzdem speichern?';
 
     return await showDialog<bool>(
           context: context,
@@ -446,6 +487,7 @@ class _ScanScreenState extends State<ScanScreen> {
     try {
       await _expenseService.addScannedExpense(
         amount: amount,
+        currencyCode: _selectedCurrencyCode,
         shopName: shopName,
         date: _dateController.text.trim(),
         categoryId: _selectedCategory.id,
@@ -495,6 +537,7 @@ class _ScanScreenState extends State<ScanScreen> {
       _shopController.clear();
       _amountController.clear();
       _dateController.text = AppFormat.date(DateTime.now());
+      _selectedCurrencyCode = AppFormat.defaultCurrencyCode;
     });
   }
 
@@ -518,6 +561,10 @@ class _ScanScreenState extends State<ScanScreen> {
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
+            if (_categoryNotice != null) ...[
+              _buildCategoryNotice(),
+              const SizedBox(height: 16),
+            ],
             Expanded(
               child: Card(
                 child: Padding(
@@ -650,9 +697,9 @@ class _ScanScreenState extends State<ScanScreen> {
               const SizedBox(width: 12),
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: _processing ? null : _capturePhoto,
+                  onPressed: !_supportsDirectCamera || _processing ? null : _capturePhoto,
                   icon: const Icon(Icons.camera_alt_rounded),
-                  label: const Text('Aufnehmen'),
+                  label: Text(_supportsDirectCamera ? 'Aufnehmen' : 'Nicht verfügbar'),
                 ),
               ),
             ],
@@ -670,6 +717,10 @@ class _ScanScreenState extends State<ScanScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (_categoryNotice != null) ...[
+            _buildCategoryNotice(),
+            const SizedBox(height: 16),
+          ],
           Card(
             clipBehavior: Clip.antiAlias,
             child: AspectRatio(
@@ -718,14 +769,38 @@ class _ScanScreenState extends State<ScanScreen> {
                     ),
                   ),
                   const SizedBox(height: 14),
+                  DropdownButtonFormField<String>(
+                    initialValue: _selectedCurrencyCode,
+                    decoration: const InputDecoration(
+                      labelText: 'Währung',
+                      prefixIcon: Icon(Icons.payments_rounded),
+                    ),
+                    items: AppFormat.dropdownCurrencyCodes(_selectedCurrencyCode)
+                        .map(
+                          (currency) => DropdownMenuItem<String>(
+                            value: currency,
+                            child: Text(AppFormat.currencyLabel(currency)),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() {
+                          _selectedCurrencyCode = value;
+                        });
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 14),
                   TextField(
                     controller: _amountController,
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Betrag',
-                      prefixIcon: Icon(Icons.euro_rounded),
+                      prefixText:
+                          '${AppFormat.currencySymbol(_selectedCurrencyCode)} ',
                       hintText: 'z. B. 6,50',
                     ),
                   ),
@@ -809,6 +884,40 @@ class _ScanScreenState extends State<ScanScreen> {
                     ),
                   ),
                 ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCategoryNotice() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBEB),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFFDE68A)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 2),
+            child: Icon(
+              Icons.info_outline_rounded,
+              color: Color(0xFFD97706),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              _categoryNotice!,
+              style: const TextStyle(
+                color: Color(0xFF92400E),
+                height: 1.35,
               ),
             ),
           ),
@@ -1108,3 +1217,15 @@ class _TorchCameraScreenState extends State<_TorchCameraScreen> {
     );
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+

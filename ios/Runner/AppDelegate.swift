@@ -34,22 +34,22 @@ import VisionKit
 
   private func startScan(result: @escaping FlutterResult) {
     guard pendingScanResult == nil else {
-      result(FlutterError(code: "busy", message: "Scanner is already active.", details: nil))
+      result(FlutterError(code: "busy", message: "Der Scanner ist bereits geöffnet.", details: nil))
       return
     }
 
     guard #available(iOS 13.0, *) else {
-      result(FlutterError(code: "unavailable", message: "Document scanner requires iOS 13 or newer.", details: nil))
+      result(FlutterError(code: "unavailable", message: "Der Dokumentenscanner benötigt mindestens iOS 13.", details: nil))
       return
     }
 
     guard VNDocumentCameraViewController.isSupported else {
-      result(FlutterError(code: "unavailable", message: "Document scanner is not supported on this device.", details: nil))
+      result(FlutterError(code: "unavailable", message: "Der Dokumentenscanner wird auf diesem Gerät nicht unterstützt.", details: nil))
       return
     }
 
     guard let presenter = topViewController(from: window?.rootViewController) else {
-      result(FlutterError(code: "unavailable", message: "Scanner presenter is not ready.", details: nil))
+      result(FlutterError(code: "unavailable", message: "Der Scanner konnte nicht gestartet werden.", details: nil))
       return
     }
 
@@ -88,7 +88,7 @@ import VisionKit
   private func persistScannedImage(_ image: UIImage) throws -> String {
     guard let imageData = image.jpegData(compressionQuality: 0.95) else {
       throw NSError(domain: "semkosnap.document_scanner", code: 1001, userInfo: [
-        NSLocalizedDescriptionKey: "Failed to encode scanned image."
+        NSLocalizedDescriptionKey: "Das gescannte Bild konnte nicht gespeichert werden."
       ])
     }
 
@@ -101,7 +101,7 @@ import VisionKit
   @available(iOS 13.0, *)
   func documentCameraViewControllerDidCancel(_ controller: VNDocumentCameraViewController) {
     controller.dismiss(animated: true) { [weak self] in
-      self?.completeScanWithError(code: "cancelled", message: "Document scan was cancelled.")
+      self?.completeScanWithError(code: "cancelled", message: "Der Dokumentenscan wurde abgebrochen.")
     }
   }
 
@@ -124,7 +124,7 @@ import VisionKit
       guard let self else { return }
 
       guard scan.pageCount > 0 else {
-        self.completeScanWithError(code: "scan_failed", message: "Scanner did not return an image.")
+        self.completeScanWithError(code: "scan_failed", message: "Der Scanner hat kein Bild zurückgegeben.")
         return
       }
 
@@ -138,4 +138,3 @@ import VisionKit
     }
   }
 }
-

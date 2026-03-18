@@ -25,13 +25,13 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>Belegleri hızlı ve doğru şekilde tarayabilmeniz için kamera erişimine izin vermeniz gerekiyor.</string>
+	<string>Damit du Belege schnell und präzise scannen kannst, benötigt Semko Scan Zugriff auf deine Kamera.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Video kayıt özelliklerini kullanabilmeniz için mikrofon erişimine izin vermeniz gerekiyor.</string>
+	<string>Für optionale Videoaufnahmen innerhalb der App wird Zugriff auf das Mikrofon benötigt.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Mevcut fiş ve belge fotoğraflarını uygulamaya ekleyebilmeniz için fotoğraf arşivinize erişim gerekiyor.</string>
+	<string>Damit du vorhandene Belegfotos auswählen kannst, benötigt Semko Scan Zugriff auf deine Fotomediathek.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Taranan belge görüntülerini isterseniz fotoğraf arşivinize kaydedebilmek için izin gerekiyor.</string>
+	<string>Damit gescannte Belegbilder bei Bedarf in deiner Fotomediathek gespeichert werden können, wird diese Berechtigung benötigt.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

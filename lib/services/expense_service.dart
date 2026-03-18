@@ -1,4 +1,5 @@
 import '../models/expense.dart';
+import '../utils/app_format.dart';
 import 'api_service.dart';
 
 class ExpenseService {
@@ -42,6 +43,7 @@ class ExpenseService {
 
   Future<Expense?> addManualExpense({
     required double amount,
+    required String currencyCode,
     required int categoryId,
     required String date,
     required String note,
@@ -52,6 +54,7 @@ class ExpenseService {
       'add_manual_expense.php',
       body: {
         'amount': amount.toStringAsFixed(2),
+        'currency': AppFormat.normalizeCurrencyCode(currencyCode),
         'category_id': categoryId,
         'date': date,
         'note': note,
@@ -66,6 +69,7 @@ class ExpenseService {
 
   Future<Expense?> addScannedExpense({
     required double amount,
+    required String currencyCode,
     required String shopName,
     required String date,
     required int categoryId,
@@ -77,6 +81,7 @@ class ExpenseService {
       'add_expense.php',
       fields: {
         'amount': amount.toStringAsFixed(2),
+        'currency': AppFormat.normalizeCurrencyCode(currencyCode),
         'shop_name': shopName,
         'date': date,
         'category_id': categoryId.toString(),
@@ -93,24 +98,47 @@ class ExpenseService {
   Future<Expense> updateExpense({
     required int expenseId,
     required double amount,
+    required String currencyCode,
     required String shopName,
     required String date,
     required int categoryId,
     required String note,
+    String? receiptImagePath,
     bool force = false,
   }) async {
-    final response = await _apiService.post(
-      'update_expense.php',
-      body: {
-        'expense_id': expenseId,
-        'amount': amount.toStringAsFixed(2),
-        'shop_name': shopName,
-        'date': date,
-        'category_id': categoryId,
-        'note': note,
-        if (force) 'force': true,
-      },
-    );
+    final normalizedCurrency = AppFormat.normalizeCurrencyCode(currencyCode);
+    late final Map<String, dynamic> response;
+
+    if (receiptImagePath != null && receiptImagePath.trim().isNotEmpty) {
+      response = await _apiService.multipart(
+        'update_expense.php',
+        fields: {
+          'expense_id': expenseId.toString(),
+          'amount': amount.toStringAsFixed(2),
+          'currency': normalizedCurrency,
+          'shop_name': shopName,
+          'date': date,
+          'category_id': categoryId.toString(),
+          'note': note,
+          if (force) 'force': '1',
+        },
+        files: {'image': receiptImagePath},
+      );
+    } else {
+      response = await _apiService.post(
+        'update_expense.php',
+        body: {
+          'expense_id': expenseId,
+          'amount': amount.toStringAsFixed(2),
+          'currency': normalizedCurrency,
+          'shop_name': shopName,
+          'date': date,
+          'category_id': categoryId,
+          'note': note,
+          if (force) 'force': true,
+        },
+      );
+    }
 
     final expense = response['expense'];
     if (expense is! Map<String, dynamic>) {

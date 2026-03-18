@@ -19,6 +19,7 @@ class _CategoryManagementScreenState extends State<CategoryManagementScreen> {
   bool _loading = true;
   String? _error;
   List<Category> _categories = const [];
+  bool _didChange = false;
 
   @override
   void initState() {
@@ -72,7 +73,15 @@ class _CategoryManagementScreenState extends State<CategoryManagementScreen> {
       return;
     }
 
+    setState(() {
+      _didChange = true;
+    });
+
     await _loadCategories(forceRefresh: true);
+  }
+
+  void _closeWithResult() {
+    Navigator.of(context).pop(_didChange);
   }
 
   @override
@@ -80,8 +89,21 @@ class _CategoryManagementScreenState extends State<CategoryManagementScreen> {
     final activeCategories = _categories.where((category) => category.isActive).toList();
     final inactiveCategories = _categories.where((category) => !category.isActive).toList();
 
-    return Scaffold(
-      appBar: AppBar(title: const BrandAppBarTitle('Kategorien')),
+    return PopScope<bool>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) {
+          _closeWithResult();
+        }
+      },
+      child: Scaffold(
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: _closeWithResult,
+        ),
+        title: const BrandAppBarTitle('Kategorien'),
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _openEditor(),
         icon: const Icon(Icons.add_rounded),
@@ -168,6 +190,7 @@ class _CategoryManagementScreenState extends State<CategoryManagementScreen> {
           ],
         ),
       ),
+      ),
     );
   }
 }
@@ -176,6 +199,7 @@ class _SectionTitle extends StatelessWidget {
   const _SectionTitle(this.text);
 
   final String text;
+
 
   @override
   Widget build(BuildContext context) {
@@ -191,6 +215,7 @@ class _CategoryTile extends StatelessWidget {
 
   final Category category;
   final VoidCallback onTap;
+
 
   @override
   Widget build(BuildContext context) {
@@ -303,6 +328,7 @@ class _CategoryEditorDialogState extends State<_CategoryEditorDialog> {
       }
     }
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -447,5 +473,6 @@ class _CategoryEditorDialogState extends State<_CategoryEditorDialog> {
     );
   }
 }
+
 
 

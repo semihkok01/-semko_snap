@@ -1,8 +1,11 @@
+import '../utils/app_format.dart';
+
 class Expense {
   const Expense({
     required this.id,
     required this.shopName,
     required this.amount,
+    required this.currencyCode,
     required this.categoryId,
     required this.date,
     this.categoryName,
@@ -19,6 +22,7 @@ class Expense {
   final int id;
   final String shopName;
   final double amount;
+  final String currencyCode;
   final int categoryId;
   final String date;
   final String? categoryName;
@@ -38,6 +42,9 @@ class Expense {
           ? (json['shop_name'] as String).trim()
           : 'Unbekanntes Geschäft',
       amount: (json['amount'] as num?)?.toDouble() ?? 0,
+      currencyCode: AppFormat.normalizeCurrencyCode(
+        json['currency'] as String?,
+      ),
       categoryId: (json['category_id'] as num?)?.toInt() ?? 0,
       date: (json['date'] as String?)?.trim() ?? '',
       categoryName: json['category_name'] as String?,
@@ -58,6 +65,7 @@ class Expense {
     int? id,
     String? shopName,
     double? amount,
+    String? currencyCode,
     int? categoryId,
     String? date,
     String? categoryName,
@@ -74,6 +82,7 @@ class Expense {
       id: id ?? this.id,
       shopName: shopName ?? this.shopName,
       amount: amount ?? this.amount,
+      currencyCode: currencyCode ?? this.currencyCode,
       categoryId: categoryId ?? this.categoryId,
       date: date ?? this.date,
       categoryName: categoryName ?? this.categoryName,

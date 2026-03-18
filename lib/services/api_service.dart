@@ -22,8 +22,34 @@ class ApiException implements Exception {
 }
 
 class ApiService {
-  static const String baseUrl = 'https://it-dienst-hamburg.de/semkosnap/api/';
-  static const String _tokenKey = 'semkosnap_jwt_token';
+  static const String baseUrl =
+      'https://it-dienst-hamburg.de/semkosnap/api/';
+
+  // 🔥 PUBLIC (ARTIK HERKES KULLANABİLİR)
+  static const String tokenKey = 'semkosnap_jwt_token';
+
+  // =========================
+  // TOKEN MANAGEMENT
+  // =========================
+
+  Future<void> saveToken(String token) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(tokenKey, token);
+  }
+
+  Future<void> clearToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(tokenKey);
+  }
+
+  Future<String?> getToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(tokenKey);
+  }
+
+  // =========================
+  // HEADERS
+  // =========================
 
   Future<Map<String, String>> _buildHeaders({
     bool authenticated = true,
@@ -36,11 +62,13 @@ class ApiService {
     }
 
     if (authenticated) {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString(_tokenKey);
+      final token = await getToken();
 
       if (token == null || token.isEmpty) {
-        throw ApiException('Kein Authentifizierungs-Token gefunden.', statusCode: 401);
+        throw ApiException(
+          'Kein Authentifizierungs-Token gefunden.',
+          statusCode: 401,
+        );
       }
 
       headers['Authorization'] = 'Bearer $token';
@@ -48,6 +76,10 @@ class ApiService {
 
     return headers;
   }
+
+  // =========================
+  // GET
+  // =========================
 
   Future<Map<String, dynamic>> get(
     String endpoint, {
@@ -68,6 +100,10 @@ class ApiService {
     return _decodeResponse(response);
   }
 
+  // =========================
+  // POST
+  // =========================
+
   Future<Map<String, dynamic>> post(
     String endpoint, {
     Map<String, dynamic>? body,
@@ -81,6 +117,10 @@ class ApiService {
 
     return _decodeResponse(response);
   }
+
+  // =========================
+  // MULTIPART
+  // =========================
 
   Future<Map<String, dynamic>> multipart(
     String endpoint, {
@@ -96,6 +136,7 @@ class ApiService {
     request.headers.addAll(
       await _buildHeaders(authenticated: authenticated, json: false),
     );
+
     request.fields.addAll(fields);
 
     for (final entry in files.entries) {
@@ -110,13 +151,21 @@ class ApiService {
     return _decodeResponse(response);
   }
 
+  // =========================
+  // RESPONSE HANDLING
+  // =========================
+
   Map<String, dynamic> _decodeResponse(http.Response response) {
-    Map<String, dynamic> payload = <String, dynamic>{};
+    Map<String, dynamic> payload = {};
 
     if (response.body.isNotEmpty) {
-      final decoded = jsonDecode(response.body);
-      if (decoded is Map<String, dynamic>) {
-        payload = decoded;
+      try {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic>) {
+          payload = decoded;
+        }
+      } catch (_) {
+        throw ApiException('Ungültige Serverantwort (kein JSON).');
       }
     }
 
@@ -124,27 +173,14 @@ class ApiService {
       return payload;
     }
 
-    // Provide a more user-friendly message for common server issues.
-    var message = (payload['message'] as String?) ?? 'Anfrage fehlgeschlagen.';
+    var message =
+        (payload['message'] as String?) ?? 'Anfrage fehlgeschlagen.';
 
-    if (response.statusCode >= 500 ||
-        message.toLowerCase().contains('internal server error') ||
-        message.toLowerCase().contains('interner serverfehler')) {
-      // Try to expose more details from the payload (often provided by server in debug mode).
-      final extra = payload.entries
-          .where((entry) => entry.key != 'message')
-          .map((entry) => '${entry.key}: ${entry.value}')
-          .join(' | ');
-
+    if (response.statusCode >= 500) {
       message =
-          'Interner Serverfehler (Code ${response.statusCode}). Bitte versuche es später.';
-
-      if (extra.isNotEmpty) {
-        message = '$message\n$extra';
-      }
+          'Interner Serverfehler (Code ${response.statusCode}).';
     } else if (response.statusCode == 401) {
-      message =
-          'Sitzung abgelaufen. Bitte melde dich neu an. (Code ${response.statusCode})';
+      message = 'Sitzung abgelaufen. Bitte neu anmelden.';
     } else {
       message = '$message (Code ${response.statusCode})';
     }
@@ -155,5 +191,19 @@ class ApiService {
       payload: payload,
     );
   }
-}
 
+  // =========================
+  // LOGIN HELPER (OPSİYONEL)
+  // =========================
+
+  Future<Map<String, dynamic>> login(String email, String password) {
+    return post(
+      'login.php',
+      body: {
+        'email': email,
+        'password': password,
+      },
+      authenticated: false,
+    );
+  }
+}

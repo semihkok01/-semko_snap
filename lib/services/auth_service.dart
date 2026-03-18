@@ -8,8 +8,11 @@ class AuthService {
 
   final ApiService _apiService;
 
-  static const String tokenKey = 'semkosnap_jwt_token';
   static const String emailKey = 'semkosnap_user_email';
+
+  // =========================
+  // LOGIN
+  // =========================
 
   Future<Map<String, dynamic>> login({
     required String email,
@@ -18,12 +21,32 @@ class AuthService {
     final response = await _apiService.post(
       'login.php',
       authenticated: false,
-      body: {'email': email.trim(), 'password': password},
+      body: {
+        'email': email.trim(),
+        'password': password,
+      },
     );
 
-    await _persistSession(response);
+    final token = response['token'] as String?;
+    final user = response['user'] as Map<String, dynamic>?;
+
+    if (token == null || token.isEmpty) {
+      throw ApiException('Authentication token missing.');
+    }
+
+    // 🔥 TOKEN → ApiService'e
+    await _apiService.saveToken(token);
+
+    // 🔥 EMAIL → Local
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(emailKey, user?['email'] ?? '');
+
     return response;
   }
+
+  // =========================
+  // REGISTER
+  // =========================
 
   Future<Map<String, dynamic>> register({
     required String email,
@@ -32,38 +55,48 @@ class AuthService {
     final response = await _apiService.post(
       'register.php',
       authenticated: false,
-      body: {'email': email.trim(), 'password': password},
+      body: {
+        'email': email.trim(),
+        'password': password,
+      },
     );
 
-    await _persistSession(response);
-    return response;
-  }
-
-  Future<void> _persistSession(Map<String, dynamic> response) async {
     final token = response['token'] as String?;
     final user = response['user'] as Map<String, dynamic>?;
 
     if (token == null || token.isEmpty) {
-      throw ApiException('Authentication token missing from response.');
+      throw ApiException('Authentication token missing.');
     }
 
+    await _apiService.saveToken(token);
+
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(tokenKey, token);
-    await prefs.setString(emailKey, (user?['email'] as String?) ?? '');
+    await prefs.setString(emailKey, user?['email'] ?? '');
+
+    return response;
   }
+
+  // =========================
+  // RESTORE SESSION
+  // =========================
 
   Future<Map<String, String?>> restoreSession() async {
     final prefs = await SharedPreferences.getInstance();
 
     return {
-      'token': prefs.getString(tokenKey),
+      'token': prefs.getString(ApiService.tokenKey), // 🔥 önemli
       'email': prefs.getString(emailKey),
     };
   }
 
+  // =========================
+  // LOGOUT
+  // =========================
+
   Future<void> logout() async {
+    await _apiService.clearToken(); // 🔥 token temizle
+
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(tokenKey);
     await prefs.remove(emailKey);
   }
 }

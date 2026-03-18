@@ -5,12 +5,20 @@ import 'package:provider/provider.dart';
 import 'providers/auth_provider.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/login_screen.dart';
+// import 'services/api_service.dart'; // Only used in comments
 import 'utils/app_format.dart';
 import 'widgets/app_logo.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppFormat.initialize();
+
+  // 🔧 API Configuration
+  // For development with local PHP server: http://localhost:8000
+  // For production: https://it-dienst-hamburg.de/semkosnap/api
+  // Uncomment the line below for development:
+  // ApiService.setBaseUrl('http://localhost:8000');
+
   runApp(const SemkoScanApp());
 }
 

@@ -49,11 +49,13 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (!mounted) return;
 
-      // 🔥 NAVIGATION SAFE
-      Future.microtask(() {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const DashboardScreen()),
-        );
+      // 🔥 NAVIGATION SAFE - use WidgetsBinding to avoid context issues
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const DashboardScreen()),
+          );
+        }
       });
     } on ApiException catch (e) {
       if (!mounted) return;

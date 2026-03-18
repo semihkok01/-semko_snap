@@ -22,8 +22,18 @@ class ApiException implements Exception {
 }
 
 class ApiService {
-  static const String baseUrl =
-      'https://it-dienst-hamburg.de/semkosnap/api/';
+  /// Development: http://localhost:8000/  (PHP built-in server)
+  /// Production: https://it-dienst-hamburg.de/semkosnap/api/
+  static String _baseUrl = 'https://it-dienst-hamburg.de/semkosnap/api/';
+
+  static String get baseUrl => _baseUrl;
+
+  /// Configure API endpoint (call this before any API requests)
+  /// For development: setBaseUrl('http://localhost:8000/')
+  /// For production: setBaseUrl('https://it-dienst-hamburg.de/semkosnap/api/')
+  static void setBaseUrl(String url) {
+    _baseUrl = url.endsWith('/') ? url : '$url/';
+  }
 
   // 🔥 PUBLIC (ARTIK HERKES KULLANABİLİR)
   static const String tokenKey = 'semkosnap_jwt_token';

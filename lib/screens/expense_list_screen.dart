@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/category.dart';
 import '../models/expense.dart';
 import '../services/api_service.dart';
+import '../services/category_preferences_service.dart';
 import '../services/category_service.dart';
 import '../services/expense_service.dart';
 import '../utils/app_format.dart';
@@ -28,21 +29,28 @@ class ExpenseListScreen extends StatefulWidget {
 class _ExpenseListScreenState extends State<ExpenseListScreen> {
   final ExpenseService _expenseService = ExpenseService();
   final CategoryService _categoryService = CategoryService();
+  final CategoryPreferencesService _categoryPreferencesService =
+      CategoryPreferencesService();
   final TextEditingController _shopFilterController = TextEditingController();
 
   bool _loading = true;
   String? _error;
   int? _deletingExpenseId;
+  bool _bulkUpdating = false;
   List<Expense> _allExpenses = const [];
   List<Category> _categories = const [];
   int? _selectedCategoryId;
   DateTime? _selectedFilterDate;
   bool _didChange = false;
+  bool _selectionMode = false;
+  final Set<int> _selectedExpenseIds = <int>{};
 
   bool get _hasActiveFilters =>
       _shopFilterController.text.trim().isNotEmpty ||
       _selectedCategoryId != null ||
       _selectedFilterDate != null;
+
+  int get _selectedCount => _selectedExpenseIds.length;
 
   @override
   void initState() {
@@ -83,14 +91,25 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
         month: widget.month,
         year: widget.year,
       );
+      final orderedCategories = await _categoryPreferencesService.sortCategories(
+        _mergeCategories(categories, expenses),
+      );
 
       if (!mounted) {
         return;
       }
 
+      final existingExpenseIds = expenses.map((expense) => expense.id).toSet();
+
       setState(() {
         _allExpenses = expenses;
-        _categories = _mergeCategories(categories, expenses);
+        _categories = orderedCategories;
+        _selectedExpenseIds.removeWhere(
+          (expenseId) => !existingExpenseIds.contains(expenseId),
+        );
+        if (_selectedExpenseIds.isEmpty) {
+          _selectionMode = false;
+        }
       });
     } on ApiException catch (exception) {
       if (!mounted) {
@@ -164,6 +183,10 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
 
       setState(() {
         _allExpenses = _allExpenses.where((item) => item.id != expense.id).toList();
+        _selectedExpenseIds.remove(expense.id);
+        if (_selectedExpenseIds.isEmpty) {
+          _selectionMode = false;
+        }
         _didChange = true;
       });
 
@@ -182,6 +205,150 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
       if (mounted) {
         setState(() {
           _deletingExpenseId = null;
+        });
+      }
+    }
+  }
+
+  void _enterSelectionMode([Expense? expense]) {
+    setState(() {
+      _selectionMode = true;
+      if (expense != null) {
+        _selectedExpenseIds.add(expense.id);
+      }
+    });
+  }
+
+  void _exitSelectionMode() {
+    setState(() {
+      _selectionMode = false;
+      _selectedExpenseIds.clear();
+    });
+  }
+
+  void _toggleExpenseSelection(Expense expense) {
+    setState(() {
+      _selectionMode = true;
+      if (_selectedExpenseIds.contains(expense.id)) {
+        _selectedExpenseIds.remove(expense.id);
+      } else {
+        _selectedExpenseIds.add(expense.id);
+      }
+
+      if (_selectedExpenseIds.isEmpty) {
+        _selectionMode = false;
+      }
+    });
+  }
+
+  void _toggleSelectAllFiltered(List<Expense> filteredExpenses) {
+    if (filteredExpenses.isEmpty) {
+      return;
+    }
+
+    final filteredIds = filteredExpenses.map((expense) => expense.id).toSet();
+    final allSelected = filteredIds.every(_selectedExpenseIds.contains);
+
+    setState(() {
+      _selectionMode = true;
+      if (allSelected) {
+        _selectedExpenseIds.removeAll(filteredIds);
+      } else {
+        _selectedExpenseIds.addAll(filteredIds);
+      }
+
+      if (_selectedExpenseIds.isEmpty) {
+        _selectionMode = false;
+      }
+    });
+  }
+
+  List<Expense> _selectedExpenses() {
+    return _allExpenses
+        .where((expense) => _selectedExpenseIds.contains(expense.id))
+        .toList();
+  }
+
+  List<Category> _activeCategoriesForBulkChange() {
+    final source = _categories.isNotEmpty ? _categories : Category.all;
+    final active = source.where((category) => category.isActive).toList();
+    active.sort((left, right) => left.localizedName.compareTo(right.localizedName));
+    return active;
+  }
+
+  Future<void> _bulkChangeCategory() async {
+    final selectedExpenses = _selectedExpenses();
+    if (selectedExpenses.isEmpty) {
+      _exitSelectionMode();
+      return;
+    }
+
+    final activeCategories = _activeCategoriesForBulkChange();
+    if (activeCategories.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Es ist keine aktive Kategorie verfügbar.')),
+      );
+      return;
+    }
+
+    final selectedCategoryId = await showDialog<int>(
+      context: context,
+      builder: (context) => _BulkCategoryDialog(
+        categories: activeCategories,
+        selectedCount: selectedExpenses.length,
+      ),
+    );
+
+    if (!mounted || selectedCategoryId == null) {
+      return;
+    }
+
+    setState(() {
+      _bulkUpdating = true;
+    });
+
+    try {
+      await _expenseService.bulkUpdateExpenseCategory(
+        expenseIds: selectedExpenses.map((expense) => expense.id).toList(),
+        categoryId: selectedCategoryId,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      final processedCount = selectedExpenses.length;
+
+      setState(() {
+        _didChange = true;
+        _selectionMode = false;
+        _selectedExpenseIds.clear();
+      });
+
+      await _loadExpenses();
+
+      if (!mounted) {
+        return;
+      }
+
+      final message = processedCount == 1
+          ? 'Die Kategorie wurde für 1 Ausgabe geändert.'
+          : 'Die Kategorie wurde für $processedCount Ausgaben geändert.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    } on ApiException catch (exception) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(exception.message)),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _bulkUpdating = false;
         });
       }
     }
@@ -306,199 +473,334 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
     final totalSummary = AppFormat.currencyTotalsSummary(
       _expenseCurrencyTotals(filteredExpenses),
     );
+    final allFilteredSelected = filteredExpenses.isNotEmpty &&
+        filteredExpenses.every(
+          (expense) => _selectedExpenseIds.contains(expense.id),
+        );
 
     return PopScope<bool>(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
-        if (!didPop) {
-          _popWithResult();
+        if (didPop) {
+          return;
         }
+
+        if (_selectionMode) {
+          _exitSelectionMode();
+          return;
+        }
+
+        _popWithResult();
       },
       child: Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: _popWithResult,
-        ),
-        title: BrandAppBarTitle('${_monthName(widget.month)} ${widget.year}'),
-      ),
-      body: RefreshIndicator(
-        onRefresh: _loadExpenses,
-        child: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Row(
-                  children: [
-                    const Icon(Icons.wallet_rounded, color: Color(0xFF2563EB)),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Text(
-                        _hasActiveFilters ? 'Gefilterte Ausgaben' : 'Gesamtausgaben',
-                        style: TextStyle(color: Colors.grey.shade700),
-                      ),
-                    ),
-                    Flexible(
-                      child: Text(
-                        totalSummary,
-                        textAlign: TextAlign.right,
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                  ],
+        appBar: AppBar(
+          leading: IconButton(
+            icon: Icon(
+              _selectionMode ? Icons.close_rounded : Icons.arrow_back_rounded,
+            ),
+            onPressed: _bulkUpdating
+                ? null
+                : () {
+                    if (_selectionMode) {
+                      _exitSelectionMode();
+                      return;
+                    }
+
+                    _popWithResult();
+                  },
+          ),
+          title: BrandAppBarTitle(
+            _selectionMode
+                ? '$_selectedCount ausgewählt'
+                : '${_monthName(widget.month)} ${widget.year}',
+          ),
+          actions: [
+            if (_selectionMode) ...[
+              IconButton(
+                tooltip: allFilteredSelected
+                    ? 'Gefilterte Auswahl aufheben'
+                    : 'Gefilterte auswählen',
+                onPressed: _bulkUpdating || filteredExpenses.isEmpty
+                    ? null
+                    : () => _toggleSelectAllFiltered(filteredExpenses),
+                icon: Icon(
+                  allFilteredSelected
+                      ? Icons.deselect_rounded
+                      : Icons.select_all_rounded,
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Filter',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: _shopFilterController,
-                      decoration: InputDecoration(
-                        labelText: 'Geschäft oder Notiz suchen',
-                        prefixIcon: const Icon(Icons.search_rounded),
-                        suffixIcon: _shopFilterController.text.trim().isEmpty
-                            ? null
-                            : IconButton(
-                                onPressed: () {
-                                  _shopFilterController.clear();
-                                },
-                                icon: const Icon(Icons.close_rounded),
-                              ),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    DropdownButtonFormField<int?>(
-                      initialValue: _selectedCategoryId,
-                      decoration: const InputDecoration(
-                        labelText: 'Kategorie',
-                        prefixIcon: Icon(Icons.category_rounded),
-                      ),
-                      items: [
-                        const DropdownMenuItem<int?>(
-                          value: null,
-                          child: Text('Alle Kategorien'),
-                        ),
-                        ..._categories.map(
-                          (category) => DropdownMenuItem<int?>(
-                            value: category.id,
-                            child: Text(
-                              category.isActive
-                                  ? category.localizedName
-                                  : '${category.localizedName} (inaktiv)',
-                              overflow: TextOverflow.ellipsis,
-                              maxLines: 1,
-                            ),
-                          ),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        setState(() {
-                          _selectedCategoryId = value;
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 14),
-                    TextField(
-                      controller: TextEditingController(
-                        text: _selectedFilterDate == null
-                            ? ''
-                            : AppFormat.date(_selectedFilterDate!),
-                      ),
-                      readOnly: true,
-                      onTap: _pickFilterDate,
-                      decoration: InputDecoration(
-                        labelText: 'Datum',
-                        prefixIcon: const Icon(Icons.calendar_today_rounded),
-                        suffixIcon: _selectedFilterDate == null
-                            ? null
-                            : IconButton(
-                                onPressed: () {
-                                  setState(() {
-                                    _selectedFilterDate = null;
-                                  });
-                                },
-                                icon: const Icon(Icons.close_rounded),
-                              ),
-                      ),
-                    ),
-                    if (_hasActiveFilters) ...[
-                      const SizedBox(height: 14),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: TextButton.icon(
-                          onPressed: () {
-                            setState(() {
-                              _shopFilterController.clear();
-                              _selectedCategoryId = null;
-                              _selectedFilterDate = null;
-                            });
-                          },
-                          icon: const Icon(Icons.filter_alt_off_rounded),
-                          label: const Text('Filter zurücksetzen'),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
+              IconButton(
+                tooltip: 'Kategorie ändern',
+                onPressed: _bulkUpdating || _selectedExpenseIds.isEmpty
+                    ? null
+                    : _bulkChangeCategory,
+                icon: _bulkUpdating
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.drive_file_move_rounded),
               ),
-            ),
-            const SizedBox(height: 16),
-            if (_loading)
-              const Padding(
-                padding: EdgeInsets.only(top: 80),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (_error != null)
-              ErrorCard(
-                message: _error!,
-                onRetry: _loadExpenses,
-              )
-            else if (filteredExpenses.isEmpty)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(28),
-                  child: Text(
-                    _hasActiveFilters
-                        ? 'Keine Ausgaben entsprechen den gewählten Filtern.'
-                        : 'Für diesen Monat wurden keine Ausgaben gefunden.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey.shade700),
-                  ),
-                ),
-              )
-            else
-              ...filteredExpenses.map(
-                (expense) => Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: _ExpenseCard(
-                    expense: expense,
-                    deleting: _deletingExpenseId == expense.id,
-                    onDelete: () => _deleteExpense(expense),
-                    onTap: () => _openExpenseDetail(expense),
-                  ),
-                ),
+            ] else
+              IconButton(
+                tooltip: 'Auswahlmodus',
+                onPressed: _loading || _allExpenses.isEmpty || _bulkUpdating
+                    ? null
+                    : _enterSelectionMode,
+                icon: const Icon(Icons.checklist_rounded),
               ),
           ],
         ),
-      ),
+        body: RefreshIndicator(
+          onRefresh: _bulkUpdating ? () async {} : _loadExpenses,
+          child: ListView(
+            padding: const EdgeInsets.all(20),
+            children: [
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.wallet_rounded, color: Color(0xFF2563EB)),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Text(
+                          _hasActiveFilters ? 'Gefilterte Ausgaben' : 'Gesamtausgaben',
+                          style: TextStyle(color: Colors.grey.shade700),
+                        ),
+                      ),
+                      Flexible(
+                        child: Text(
+                          totalSummary,
+                          textAlign: TextAlign.right,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (_selectionMode) ...[
+                Card(
+                  color: const Color(0xFFEFF6FF),
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Mehrfachauswahl aktiv',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          _selectedCount == 0
+                              ? 'Tippe auf einzelne Ausgaben oder wähle alle gefilterten Einträge aus.'
+                              : _selectedCount == 1
+                                  ? '1 Ausgabe ist ausgewählt. Du kannst jetzt die Kategorie gesammelt ändern.'
+                                  : '$_selectedCount Ausgaben sind ausgewählt. Du kannst jetzt die Kategorie gesammelt ändern.',
+                          style: TextStyle(color: Colors.grey.shade700),
+                        ),
+                        const SizedBox(height: 14),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: _bulkUpdating || filteredExpenses.isEmpty
+                                  ? null
+                                  : () => _toggleSelectAllFiltered(filteredExpenses),
+                              icon: Icon(
+                                allFilteredSelected
+                                    ? Icons.deselect_rounded
+                                    : Icons.select_all_rounded,
+                              ),
+                              label: Text(
+                                allFilteredSelected
+                                    ? 'Gefilterte abwählen'
+                                    : 'Gefilterte auswählen',
+                              ),
+                            ),
+                            ElevatedButton.icon(
+                              onPressed: _bulkUpdating || _selectedExpenseIds.isEmpty
+                                  ? null
+                                  : _bulkChangeCategory,
+                              icon: _bulkUpdating
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Icon(Icons.drive_file_move_rounded),
+                              label: const Text('Kategorie ändern'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Filter',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _shopFilterController,
+                        decoration: InputDecoration(
+                          labelText: 'Geschäft oder Notiz suchen',
+                          prefixIcon: const Icon(Icons.search_rounded),
+                          suffixIcon: _shopFilterController.text.trim().isEmpty
+                              ? null
+                              : IconButton(
+                                  onPressed: () {
+                                    _shopFilterController.clear();
+                                  },
+                                  icon: const Icon(Icons.close_rounded),
+                                ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      DropdownButtonFormField<int?>(
+                        initialValue: _selectedCategoryId,
+                        decoration: const InputDecoration(
+                          labelText: 'Kategorie',
+                          prefixIcon: Icon(Icons.category_rounded),
+                        ),
+                        items: [
+                          const DropdownMenuItem<int?>(
+                            value: null,
+                            child: Text('Alle Kategorien'),
+                          ),
+                          ..._categories.map(
+                            (category) => DropdownMenuItem<int?>(
+                              value: category.id,
+                              child: Text(
+                                category.isActive
+                                    ? category.localizedName
+                                    : '${category.localizedName} (inaktiv)',
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 1,
+                              ),
+                            ),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          setState(() {
+                            _selectedCategoryId = value;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: TextEditingController(
+                          text: _selectedFilterDate == null
+                              ? ''
+                              : AppFormat.date(_selectedFilterDate!),
+                        ),
+                        readOnly: true,
+                        onTap: _pickFilterDate,
+                        decoration: InputDecoration(
+                          labelText: 'Datum',
+                          prefixIcon: const Icon(Icons.calendar_today_rounded),
+                          suffixIcon: _selectedFilterDate == null
+                              ? null
+                              : IconButton(
+                                  onPressed: () {
+                                    setState(() {
+                                      _selectedFilterDate = null;
+                                    });
+                                  },
+                                  icon: const Icon(Icons.close_rounded),
+                                ),
+                        ),
+                      ),
+                      if (_hasActiveFilters) ...[
+                        const SizedBox(height: 14),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            onPressed: () {
+                              setState(() {
+                                _shopFilterController.clear();
+                                _selectedCategoryId = null;
+                                _selectedFilterDate = null;
+                              });
+                            },
+                            icon: const Icon(Icons.filter_alt_off_rounded),
+                            label: const Text('Filter zurücksetzen'),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (_loading)
+                const Padding(
+                  padding: EdgeInsets.only(top: 80),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (_error != null)
+                ErrorCard(
+                  message: _error!,
+                  onRetry: _loadExpenses,
+                )
+              else if (filteredExpenses.isEmpty)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(28),
+                    child: Text(
+                      _hasActiveFilters
+                          ? 'Keine Ausgaben entsprechen den gewählten Filtern.'
+                          : 'Für diesen Monat wurden keine Ausgaben gefunden.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.grey.shade700),
+                    ),
+                  ),
+                )
+              else
+                ...filteredExpenses.map(
+                  (expense) => Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _ExpenseCard(
+                      expense: expense,
+                      deleting: _deletingExpenseId == expense.id,
+                      selectionMode: _selectionMode,
+                      selected: _selectedExpenseIds.contains(expense.id),
+                      onDelete: () => _deleteExpense(expense),
+                      onTap: () => _openExpenseDetail(expense),
+                      onLongPress: () => _enterSelectionMode(expense),
+                      onToggleSelection: () => _toggleExpenseSelection(expense),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -527,15 +829,22 @@ class _ExpenseCard extends StatelessWidget {
   const _ExpenseCard({
     required this.expense,
     required this.deleting,
+    required this.selectionMode,
+    required this.selected,
     required this.onDelete,
     required this.onTap,
+    required this.onLongPress,
+    required this.onToggleSelection,
   });
 
   final Expense expense;
   final bool deleting;
+  final bool selectionMode;
+  final bool selected;
   final VoidCallback onDelete;
   final VoidCallback onTap;
-
+  final VoidCallback onLongPress;
+  final VoidCallback onToggleSelection;
 
   @override
   Widget build(BuildContext context) {
@@ -552,9 +861,18 @@ class _ExpenseCard extends StatelessWidget {
     );
 
     return Card(
+      color: selected ? const Color(0xFFEFF6FF) : null,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(24),
+        side: BorderSide(
+          color: selected ? const Color(0xFF2563EB) : Colors.transparent,
+          width: 1.5,
+        ),
+      ),
       child: InkWell(
         borderRadius: BorderRadius.circular(24),
-        onTap: onTap,
+        onTap: selectionMode ? onToggleSelection : onTap,
+        onLongPress: selectionMode ? onToggleSelection : onLongPress,
         child: Padding(
           padding: const EdgeInsets.all(18),
           child: Row(
@@ -612,20 +930,26 @@ class _ExpenseCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 6),
-                  deleting
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : IconButton(
-                          tooltip: 'Löschen',
-                          onPressed: onDelete,
-                          icon: const Icon(
-                            Icons.delete_outline_rounded,
-                            color: Color(0xFFDC2626),
-                          ),
-                        ),
+                  if (selectionMode)
+                    Checkbox.adaptive(
+                      value: selected,
+                      onChanged: (_) => onToggleSelection(),
+                    )
+                  else if (deleting)
+                    const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  else
+                    IconButton(
+                      tooltip: 'Löschen',
+                      onPressed: onDelete,
+                      icon: const Icon(
+                        Icons.delete_outline_rounded,
+                        color: Color(0xFFDC2626),
+                      ),
+                    ),
                 ],
               ),
             ],
@@ -636,3 +960,113 @@ class _ExpenseCard extends StatelessWidget {
   }
 }
 
+class _BulkCategoryDialog extends StatefulWidget {
+  const _BulkCategoryDialog({
+    required this.categories,
+    required this.selectedCount,
+  });
+
+  final List<Category> categories;
+  final int selectedCount;
+
+  @override
+  State<_BulkCategoryDialog> createState() => _BulkCategoryDialogState();
+}
+
+class _BulkCategoryDialogState extends State<_BulkCategoryDialog> {
+  late int _selectedCategoryId;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedCategoryId = widget.categories.first.id;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedCategory = widget.categories.firstWhere(
+      (category) => category.id == _selectedCategoryId,
+      orElse: () => widget.categories.first,
+    );
+    final selectionLabel = widget.selectedCount == 1
+        ? '1 ausgewählte Ausgabe'
+        : '${widget.selectedCount} ausgewählte Ausgaben';
+
+    return AlertDialog(
+      title: const Text('Kategorie ändern'),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Wähle die neue Kategorie für $selectionLabel.',
+              style: TextStyle(color: Colors.grey.shade700),
+            ),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<int>(
+              initialValue: _selectedCategoryId,
+              decoration: const InputDecoration(
+                labelText: 'Neue Kategorie',
+                prefixIcon: Icon(Icons.category_rounded),
+              ),
+              items: widget.categories
+                  .map(
+                    (category) => DropdownMenuItem<int>(
+                      value: category.id,
+                      child: Text(category.localizedName),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (value) {
+                if (value == null) {
+                  return;
+                }
+
+                setState(() {
+                  _selectedCategoryId = value;
+                });
+              },
+            ),
+            const SizedBox(height: 18),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: selectedCategory.color.withValues(alpha: 0.14),
+                    foregroundColor: selectedCategory.color,
+                    child: Icon(selectedCategory.iconData),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      selectedCategory.localizedName,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Abbrechen'),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.of(context).pop(_selectedCategoryId),
+          child: const Text('Übernehmen'),
+        ),
+      ],
+    );
+  }
+}

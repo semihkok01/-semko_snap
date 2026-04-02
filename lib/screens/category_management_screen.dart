@@ -129,7 +129,7 @@ class _CategoryManagementScreenState extends State<CategoryManagementScreen> {
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      'Hier kannst du Kategorien hinzufügen, bearbeiten und deaktivieren.',
+                      'Hier kannst du Kategorien hinzufügen, bearbeiten, deaktivieren und löschen.',
                       style: TextStyle(color: Colors.grey.shade700),
                     ),
                   ],
@@ -270,6 +270,7 @@ class _CategoryEditorDialogState extends State<_CategoryEditorDialog> {
   late Color _selectedColor;
   late bool _isActive;
   bool _saving = false;
+  bool _deleting = false;
 
   @override
   void initState() {
@@ -329,10 +330,69 @@ class _CategoryEditorDialogState extends State<_CategoryEditorDialog> {
     }
   }
 
+  Future<void> _delete() async {
+    final category = widget.category;
+    if (category == null) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Kategorie löschen'),
+        content: Text(
+          'Möchtest du „${category.localizedName}“ wirklich löschen?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Abbrechen'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Löschen'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    setState(() {
+      _deleting = true;
+    });
+
+    try {
+      await _categoryService.deleteCategory(category.id);
+
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.of(context).pop(true);
+    } on ApiException catch (exception) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(exception.message)));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _deleting = false;
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.category != null;
+    final busy = _saving || _deleting;
 
     return AlertDialog(
       title: Text(isEditing ? 'Kategorie bearbeiten' : 'Kategorie hinzufügen'),
@@ -452,12 +512,24 @@ class _CategoryEditorDialogState extends State<_CategoryEditorDialog> {
         ),
       ),
       actions: [
+        if (isEditing)
+          TextButton(
+            onPressed: busy ? null : _delete,
+            style: TextButton.styleFrom(foregroundColor: const Color(0xFFDC2626)),
+            child: _deleting
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Löschen'),
+          ),
         TextButton(
-          onPressed: _saving ? null : () => Navigator.of(context).pop(false),
+          onPressed: busy ? null : () => Navigator.of(context).pop(false),
           child: const Text('Abbrechen'),
         ),
         ElevatedButton(
-          onPressed: _saving ? null : _save,
+          onPressed: busy ? null : _save,
           child: _saving
               ? const SizedBox(
                   width: 18,
@@ -473,6 +545,11 @@ class _CategoryEditorDialogState extends State<_CategoryEditorDialog> {
     );
   }
 }
+
+
+
+
+
 
 
 

@@ -12,6 +12,7 @@ import '../utils/app_format.dart';
 import '../widgets/brand_app_bar_title.dart';
 import '../widgets/error_card.dart';
 import 'archive_screen.dart';
+import 'category_favorites_screen.dart';
 import 'category_management_screen.dart';
 import 'expense_detail_screen.dart';
 import 'expense_list_screen.dart';
@@ -263,6 +264,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   color: const Color(0xFF0EA5A4),
                   onTap: () => _openAndRefresh(
                     const CategoryManagementScreen(),
+                  ),
+                ),
+                _QuickActionCard(
+                  title: 'Favoriten',
+                  icon: Icons.star_rounded,
+                  color: const Color(0xFFF59E0B),
+                  onTap: () => _openAndRefresh(
+                    const CategoryFavoritesScreen(),
                   ),
                 ),
               ],

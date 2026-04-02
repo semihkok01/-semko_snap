@@ -5,6 +5,7 @@ import '../models/expense.dart';
 import '../services/api_service.dart';
 import '../services/expense_service.dart';
 import '../utils/app_format.dart';
+import '../widgets/authenticated_receipt_image.dart';
 import '../widgets/brand_app_bar_title.dart';
 import 'expense_edit_screen.dart';
 
@@ -22,6 +23,10 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
   late Expense _expense;
   bool _didChange = false;
   bool _deleting = false;
+
+  bool get _hasReceiptImage =>
+      (_expense.receiptImage ?? '').trim().isNotEmpty ||
+      (_expense.receiptImageUrl ?? '').trim().isNotEmpty;
 
   @override
   void initState() {
@@ -105,7 +110,7 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
   }
 
   void _openImagePreview() {
-    if ((_expense.receiptImageUrl ?? '').isEmpty) {
+    if (!_hasReceiptImage) {
       return;
     }
 
@@ -114,7 +119,10 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
       builder: (context) => Dialog(
         insetPadding: const EdgeInsets.all(16),
         child: InteractiveViewer(
-          child: Image.network(_expense.receiptImageUrl!, fit: BoxFit.contain),
+          child: AuthenticatedReceiptImage(
+            expenseId: _expense.id,
+            fit: BoxFit.contain,
+          ),
         ),
       ),
     );
@@ -170,27 +178,21 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
         body: ListView(
           padding: const EdgeInsets.all(20),
           children: [
-            if ((_expense.receiptImageUrl ?? '').isNotEmpty)
+            if (_hasReceiptImage)
               GestureDetector(
                 onTap: _openImagePreview,
                 child: Card(
                   clipBehavior: Clip.antiAlias,
                   child: AspectRatio(
                     aspectRatio: 4 / 3,
-                    child: Image.network(
-                      _expense.receiptImageUrl!,
+                    child: AuthenticatedReceiptImage(
+                      expenseId: _expense.id,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(24),
-                          child: Text('Belegbild konnte nicht geladen werden.'),
-                        ),
-                      ),
                     ),
                   ),
                 ),
               ),
-            if ((_expense.receiptImageUrl ?? '').isNotEmpty)
+            if (_hasReceiptImage)
               const SizedBox(height: 16),
             Card(
               child: Padding(
@@ -324,8 +326,3 @@ class _DetailRow extends StatelessWidget {
     );
   }
 }
-
-
-
-
-

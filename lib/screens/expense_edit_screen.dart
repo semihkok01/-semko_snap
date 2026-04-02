@@ -6,10 +6,12 @@ import 'package:image_picker/image_picker.dart';
 import '../models/category.dart';
 import '../models/expense.dart';
 import '../services/api_service.dart';
+import '../services/category_preferences_service.dart';
 import '../services/category_service.dart';
 import '../services/document_scan_service.dart';
 import '../services/expense_service.dart';
 import '../utils/app_format.dart';
+import '../widgets/authenticated_receipt_image.dart';
 import '../widgets/brand_app_bar_title.dart';
 
 class ExpenseEditScreen extends StatefulWidget {
@@ -25,6 +27,8 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
   final _formKey = GlobalKey<FormState>();
   final ExpenseService _expenseService = ExpenseService();
   final CategoryService _categoryService = CategoryService();
+  final CategoryPreferencesService _categoryPreferencesService =
+      CategoryPreferencesService();
   final ImagePicker _imagePicker = ImagePicker();
   final DocumentScanService _documentScanService = DocumentScanService();
   late final TextEditingController _shopController;
@@ -75,30 +79,34 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
         (category) => category.id == currentCategory.id,
       );
       final merged = containsCurrent ? categories : [currentCategory, ...categories];
+      final sortedCategories = await _categoryPreferencesService.sortCategories(
+        merged,
+      );
 
       if (!mounted) {
         return;
       }
 
       setState(() {
-        _categories = merged;
-        _selectedCategory = merged.firstWhere(
+        _categories = sortedCategories;
+        _selectedCategory = sortedCategories.firstWhere(
           (category) => category.id == currentCategory.id,
-          orElse: () => merged.first,
+          orElse: () => sortedCategories.first,
         );
         _loadingCategories = false;
       });
     } catch (_) {
       final currentCategory = _currentExpenseCategory();
+      final fallbackCategories = await _categoryPreferencesService.sortCategories([
+        currentCategory,
+        ...Category.all.where((category) => category.id != currentCategory.id),
+      ]);
       if (!mounted) {
         return;
       }
 
       setState(() {
-        _categories = [
-          currentCategory,
-          ...Category.all.where((category) => category.id != currentCategory.id),
-        ];
+        _categories = fallbackCategories;
         _selectedCategory = currentCategory;
         _loadingCategories = false;
       });
@@ -279,7 +287,8 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
 
   Widget _buildReceiptPreview() {
     final hasReplacement = (_replacementImagePath ?? '').isNotEmpty;
-    final hasStoredImage = (widget.expense.receiptImageUrl ?? '').isNotEmpty;
+    final hasStoredImage = (widget.expense.receiptImage ?? '').isNotEmpty ||
+        (widget.expense.receiptImageUrl ?? '').isNotEmpty;
 
     if (!hasReplacement && !hasStoredImage) {
       return Container(
@@ -305,15 +314,9 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
                 File(_replacementImagePath!),
                 fit: BoxFit.cover,
               )
-            : Image.network(
-                widget.expense.receiptImageUrl!,
+            : AuthenticatedReceiptImage(
+                expenseId: widget.expense.id,
                 fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(20),
-                    child: Text('Belegbild konnte nicht geladen werden.'),
-                  ),
-                ),
               ),
       ),
     );
@@ -526,3 +529,5 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
     );
   }
 }
+
+

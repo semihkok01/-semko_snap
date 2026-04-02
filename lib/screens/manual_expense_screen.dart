@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/category.dart';
 import '../models/expense.dart';
 import '../services/api_service.dart';
+import '../services/category_preferences_service.dart';
 import '../services/category_service.dart';
 import '../services/expense_service.dart';
 import '../utils/app_format.dart';
@@ -25,6 +26,8 @@ class _ManualExpenseScreenState extends State<ManualExpenseScreen> {
   final _formKey = GlobalKey<FormState>();
   final ExpenseService _expenseService = ExpenseService();
   final CategoryService _categoryService = CategoryService();
+  final CategoryPreferencesService _categoryPreferencesService =
+      CategoryPreferencesService();
 
   List<Category> _categories = Category.all;
   Category _selectedCategory = Category.all.first;
@@ -51,12 +54,13 @@ class _ManualExpenseScreenState extends State<ManualExpenseScreen> {
   Future<void> _loadCategories() async {
     try {
       final categories = await _categoryService.fetchCategories();
+      final resolvedCategories = await _categoryPreferencesService.sortCategories(
+        categories.isNotEmpty ? categories : Category.all,
+      );
       if (!mounted) {
         return;
       }
 
-      final resolvedCategories =
-          categories.isNotEmpty ? categories : Category.all;
       setState(() {
         _categories = resolvedCategories;
         _selectedCategory = resolvedCategories.first;
@@ -66,24 +70,30 @@ class _ManualExpenseScreenState extends State<ManualExpenseScreen> {
         _loadingCategories = false;
       });
     } on ApiException catch (_) {
+      final fallbackCategories = await _categoryPreferencesService.sortCategories(
+        Category.all,
+      );
       if (!mounted) {
         return;
       }
 
       setState(() {
-        _categories = Category.all;
+        _categories = fallbackCategories;
         _selectedCategory = _categories.first;
         _categoryNotice =
             'Serverkategorien konnten nicht geladen werden. Standardkategorien werden verwendet.';
         _loadingCategories = false;
       });
     } catch (_) {
+      final fallbackCategories = await _categoryPreferencesService.sortCategories(
+        Category.all,
+      );
       if (!mounted) {
         return;
       }
 
       setState(() {
-        _categories = Category.all;
+        _categories = fallbackCategories;
         _selectedCategory = _categories.first;
         _categoryNotice =
             'Kategorien konnten nicht geladen werden. Standardkategorien werden verwendet.';

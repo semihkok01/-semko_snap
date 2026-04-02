@@ -9,6 +9,7 @@ import '../models/category.dart';
 import '../models/expense.dart';
 import '../models/receipt_parse_result.dart';
 import '../services/api_service.dart';
+import '../services/category_preferences_service.dart';
 import '../services/category_service.dart';
 import '../services/document_scan_service.dart';
 import '../services/expense_service.dart';
@@ -26,6 +27,8 @@ class ScanScreen extends StatefulWidget {
 class _ScanScreenState extends State<ScanScreen> {
   final ExpenseService _expenseService = ExpenseService();
   final CategoryService _categoryService = CategoryService();
+  final CategoryPreferencesService _categoryPreferencesService =
+      CategoryPreferencesService();
   final ImagePicker _imagePicker = ImagePicker();
   final ReceiptParserService _receiptParserService = ReceiptParserService();
   final DocumentScanService _documentScanService = DocumentScanService();
@@ -86,12 +89,13 @@ class _ScanScreenState extends State<ScanScreen> {
   Future<void> _loadCategories() async {
     try {
       final categories = await _categoryService.fetchCategories();
+      final resolvedCategories = await _categoryPreferencesService.sortCategories(
+        categories.isNotEmpty ? categories : Category.all,
+      );
       if (!mounted) {
         return;
       }
 
-      final resolvedCategories =
-          categories.isNotEmpty ? categories : Category.all;
       setState(() {
         _categories = resolvedCategories;
         _selectedCategory = resolvedCategories.first;
@@ -101,24 +105,30 @@ class _ScanScreenState extends State<ScanScreen> {
         _loadingCategories = false;
       });
     } on ApiException catch (_) {
+      final fallbackCategories = await _categoryPreferencesService.sortCategories(
+        Category.all,
+      );
       if (!mounted) {
         return;
       }
 
       setState(() {
-        _categories = Category.all;
+        _categories = fallbackCategories;
         _selectedCategory = _categories.first;
         _categoryNotice =
             'Serverkategorien konnten nicht geladen werden. Standardkategorien werden verwendet.';
         _loadingCategories = false;
       });
     } catch (_) {
+      final fallbackCategories = await _categoryPreferencesService.sortCategories(
+        Category.all,
+      );
       if (!mounted) {
         return;
       }
 
       setState(() {
-        _categories = Category.all;
+        _categories = fallbackCategories;
         _selectedCategory = _categories.first;
         _categoryNotice =
             'Kategorien konnten nicht geladen werden. Standardkategorien werden verwendet.';

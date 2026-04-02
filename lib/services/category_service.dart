@@ -56,6 +56,17 @@ class CategoryService {
     return _applyResponse(response, includeInactive: true);
   }
 
+  Future<List<Category>> deleteCategory(int id) async {
+    final response = await _apiService.post(
+      'delete_category.php',
+      body: {
+        'category_id': id,
+      },
+    );
+
+    return _applyResponse(response, includeInactive: true);
+  }
+
   List<Category> _applyResponse(
     Map<String, dynamic> response, {
     required bool includeInactive,
@@ -82,3 +93,4 @@ class CategoryService {
         : Category.all;
   }
 }
+

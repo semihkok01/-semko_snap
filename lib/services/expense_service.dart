@@ -41,6 +41,19 @@ class ExpenseService {
     return archive;
   }
 
+  Future<void> bulkUpdateExpenseCategory({
+    required List<int> expenseIds,
+    required int categoryId,
+  }) async {
+    await _apiService.post(
+      'bulk_update_expense_category.php',
+      body: {
+        'expense_ids': expenseIds,
+        'category_id': categoryId,
+      },
+    );
+  }
+
   Future<Expense?> addManualExpense({
     required double amount,
     required String currencyCode,

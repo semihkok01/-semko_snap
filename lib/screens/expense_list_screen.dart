@@ -443,13 +443,19 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
     });
   }
 
-  List<CurrencyTotalEntry> _expenseCurrencyTotals(List<Expense> expenses) {
+  List<CurrencyTotalEntry> _expenseCurrencyTotals(
+    List<Expense> expenses, {
+    bool applySplitInHalf = false,
+  }) {
     final totals = <String, double>{};
     for (final expense in expenses) {
+      final amount = applySplitInHalf && expense.categorySplitInHalf
+          ? (expense.amount / 2)
+          : expense.amount;
       totals.update(
         expense.currencyCode,
-        (value) => value + expense.amount,
-        ifAbsent: () => expense.amount,
+        (value) => value + amount,
+        ifAbsent: () => amount,
       );
     }
 
@@ -473,6 +479,17 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
     final totalSummary = AppFormat.currencyTotalsSummary(
       _expenseCurrencyTotals(filteredExpenses),
     );
+    final hasSplitInHalfCategory = filteredExpenses.any(
+      (expense) => expense.categorySplitInHalf,
+    );
+    final halfAdjustedSummary = hasSplitInHalfCategory
+        ? AppFormat.currencyTotalsSummary(
+            _expenseCurrencyTotals(
+              filteredExpenses,
+              applySplitInHalf: true,
+            ),
+          )
+        : null;
     final allFilteredSelected = filteredExpenses.isNotEmpty &&
         filteredExpenses.every(
           (expense) => _selectedExpenseIds.contains(expense.id),
@@ -571,13 +588,31 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
                         ),
                       ),
                       Flexible(
-                        child: Text(
-                          totalSummary,
-                          textAlign: TextAlign.right,
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w800,
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              hasSplitInHalfCategory
+                                  ? 'Original: $totalSummary'
+                                  : totalSummary,
+                              textAlign: TextAlign.right,
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            if (halfAdjustedSummary != null) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                'Halbiert: $halfAdjustedSummary',
+                                textAlign: TextAlign.right,
+                                style: TextStyle(
+                                  color: Colors.grey.shade700,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       ),
                     ],

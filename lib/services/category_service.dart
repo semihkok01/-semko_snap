@@ -41,6 +41,7 @@ class CategoryService {
     required String icon,
     required String color,
     required bool isActive,
+    required bool splitInHalf,
   }) async {
     final response = await _apiService.post(
       'save_category.php',
@@ -50,6 +51,7 @@ class CategoryService {
         'icon': icon,
         'color': color,
         'is_active': isActive,
+        'split_in_half': splitInHalf,
       },
     );
 

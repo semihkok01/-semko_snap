@@ -7,6 +7,7 @@ class Category {
     required this.iconName,
     required this.color,
     this.isActive = true,
+    this.splitInHalf = false,
   });
 
   final int id;
@@ -14,6 +15,7 @@ class Category {
   final String iconName;
   final Color color;
   final bool isActive;
+  final bool splitInHalf;
 
   static final List<Category> _fallback = [
     const Category(
@@ -103,6 +105,9 @@ class Category {
       isActive: json['is_active'] is bool
           ? json['is_active'] as bool
           : ((json['is_active'] as num?)?.toInt() ?? 1) == 1,
+      splitInHalf: json['split_in_half'] is bool
+          ? json['split_in_half'] as bool
+          : ((json['split_in_half'] as num?)?.toInt() ?? 0) == 1,
     );
   }
 
@@ -112,6 +117,7 @@ class Category {
     String? iconName,
     Color? color,
     bool? isActive,
+    bool? splitInHalf,
   }) {
     return Category(
       id: id ?? this.id,
@@ -119,6 +125,7 @@ class Category {
       iconName: iconName ?? this.iconName,
       color: color ?? this.color,
       isActive: isActive ?? this.isActive,
+      splitInHalf: splitInHalf ?? this.splitInHalf,
     );
   }
 

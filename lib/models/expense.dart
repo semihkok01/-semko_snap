@@ -12,6 +12,7 @@ class Expense {
     this.categoryIcon,
     this.categoryColor,
     this.categoryIsActive = true,
+    this.categorySplitInHalf = false,
     this.note,
     this.ocrText,
     this.receiptImage,
@@ -29,6 +30,7 @@ class Expense {
   final String? categoryIcon;
   final String? categoryColor;
   final bool categoryIsActive;
+  final bool categorySplitInHalf;
   final String? note;
   final String? ocrText;
   final String? receiptImage;
@@ -53,6 +55,9 @@ class Expense {
       categoryIsActive: json['category_is_active'] is bool
           ? json['category_is_active'] as bool
           : ((json['category_is_active'] as num?)?.toInt() ?? 1) == 1,
+      categorySplitInHalf: json['category_split_in_half'] is bool
+          ? json['category_split_in_half'] as bool
+          : ((json['category_split_in_half'] as num?)?.toInt() ?? 0) == 1,
       note: json['note'] as String?,
       ocrText: json['ocr_text'] as String?,
       receiptImage: json['receipt_image'] as String?,
@@ -72,6 +77,7 @@ class Expense {
     String? categoryIcon,
     String? categoryColor,
     bool? categoryIsActive,
+    bool? categorySplitInHalf,
     String? note,
     String? ocrText,
     String? receiptImage,
@@ -89,6 +95,7 @@ class Expense {
       categoryIcon: categoryIcon ?? this.categoryIcon,
       categoryColor: categoryColor ?? this.categoryColor,
       categoryIsActive: categoryIsActive ?? this.categoryIsActive,
+      categorySplitInHalf: categorySplitInHalf ?? this.categorySplitInHalf,
       note: note ?? this.note,
       ocrText: ocrText ?? this.ocrText,
       receiptImage: receiptImage ?? this.receiptImage,

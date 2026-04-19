@@ -230,7 +230,11 @@ class _CategoryTile extends StatelessWidget {
           category.localizedName,
           style: const TextStyle(fontWeight: FontWeight.w700),
         ),
-        subtitle: Text('${category.iconName} • ${category.colorHex}'),
+        subtitle: Text(
+          category.splitInHalf
+              ? '${category.iconName} • ${category.colorHex} • Halbiert'
+              : '${category.iconName} • ${category.colorHex}',
+        ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -269,6 +273,7 @@ class _CategoryEditorDialogState extends State<_CategoryEditorDialog> {
   late String _selectedIcon;
   late Color _selectedColor;
   late bool _isActive;
+  late bool _splitInHalf;
   bool _saving = false;
   bool _deleting = false;
 
@@ -281,6 +286,7 @@ class _CategoryEditorDialogState extends State<_CategoryEditorDialog> {
     _selectedIcon = widget.category?.iconName ?? Category.iconChoices.first.name;
     _selectedColor = widget.category?.color ?? Category.colorChoices.first;
     _isActive = widget.category?.isActive ?? true;
+    _splitInHalf = widget.category?.splitInHalf ?? false;
   }
 
   @override
@@ -306,6 +312,7 @@ class _CategoryEditorDialogState extends State<_CategoryEditorDialog> {
         color:
             '#${(_selectedColor.toARGB32() & 0x00FFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase()}',
         isActive: _isActive,
+        splitInHalf: _splitInHalf,
       );
 
       if (!mounted) {
@@ -465,6 +472,22 @@ class _CategoryEditorDialogState extends State<_CategoryEditorDialog> {
                   onChanged: (value) {
                     setState(() {
                       _isActive = value;
+                    });
+                  },
+                ),
+                const SizedBox(height: 6),
+                SwitchListTile.adaptive(
+                  value: _splitInHalf,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Betrag halbieren'),
+                  subtitle: Text(
+                    _splitInHalf
+                        ? 'Ausgaben in dieser Kategorie werden bei Summen halb angerechnet.'
+                        : 'Summen dieser Kategorie werden normal berechnet.',
+                  ),
+                  onChanged: (value) {
+                    setState(() {
+                      _splitInHalf = value;
                     });
                   },
                 ),

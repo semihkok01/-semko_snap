@@ -80,6 +80,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return;
       }
 
+      if (exception.statusCode == 401) {
+        final authProvider = context.read<AuthProvider>();
+        final navigator = Navigator.of(context);
+        await authProvider.logout();
+        if (!mounted) {
+          return;
+        }
+        navigator.pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+          (route) => false,
+        );
+        return;
+      }
+
       setState(() {
         _error = exception.message;
       });

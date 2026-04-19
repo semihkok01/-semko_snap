@@ -30,6 +30,14 @@ class AuthProvider extends ChangeNotifier {
     _token = session['token'];
     _email = session['email'];
 
+    if ((_token ?? '').isNotEmpty) {
+      final isValid = await _authService.validateStoredSession();
+      if (!isValid) {
+        _token = null;
+        _email = null;
+      }
+    }
+
     _isInitialized = true;
     notifyListeners();
   }

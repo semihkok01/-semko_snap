@@ -89,6 +89,23 @@ class AuthService {
     };
   }
 
+  Future<bool> validateStoredSession() async {
+    try {
+      await _apiService.get('get_archive.php');
+      return true;
+    } on ApiException catch (exception) {
+      if (exception.statusCode == 401) {
+        await logout();
+        return false;
+      }
+
+      // Keep session for transient issues (offline/server hiccup).
+      return true;
+    } catch (_) {
+      return true;
+    }
+  }
+
   // =========================
   // LOGOUT
   // =========================
